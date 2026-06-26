@@ -420,6 +420,67 @@
     @media (min-width: 769px) {
       #bottom-nav { display:none; }
     }
+    /* ── MUSIC PLATFORM ──────────────────────────── */
+    .music-upload-card { background:var(--card); border:1px solid var(--border); border-radius:8px; margin-bottom:10px; overflow:hidden; }
+    .music-upload-header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; font-size:14px; font-weight:bold; color:var(--text3); cursor:pointer; }
+    .music-upload-header:hover { background:var(--side-link); }
+    .music-upload-body { padding:14px 16px; border-top:1px solid var(--border); }
+    .music-cover-row { display:flex; gap:12px; margin-bottom:12px; }
+    .music-cover-pick { width:90px; height:90px; border-radius:8px; border:2px dashed var(--input-border); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; overflow:hidden; background:var(--input-bg); transition:border-color .15s; }
+    .music-cover-pick:hover { border-color:#4a76a8; }
+    .music-cover-pick img { width:100%; height:100%; object-fit:cover; }
+    .music-text-input { width:100%; padding:8px 10px; border:1px solid var(--input-border); border-radius:6px; font-size:13px; background:var(--input-bg); color:var(--text); font-family:Arial,sans-serif; }
+    .music-text-input:focus { outline:none; border-color:#4a76a8; }
+    .music-audio-pick { border:2px dashed var(--input-border); border-radius:8px; padding:14px; text-align:center; cursor:pointer; font-size:13px; color:var(--text2); margin-top:4px; transition:border-color .15s,color .15s; }
+    .music-audio-pick:hover { border-color:#4a76a8; color:#4a76a8; }
+
+    /* Track card */
+    .track-card { background:var(--card); border:1px solid var(--border); border-radius:8px; margin-bottom:8px; display:flex; align-items:center; gap:12px; padding:10px 14px; cursor:pointer; transition:background .1s; }
+    .track-card:hover { background:var(--side-link); }
+    .track-card.playing { border-color:#4a76a8; background:rgba(74,118,168,0.06); }
+    .track-cover { width:52px; height:52px; border-radius:6px; background:linear-gradient(135deg,#4a76a8,#3d6690); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:22px; overflow:hidden; }
+    .track-cover img { width:100%; height:100%; object-fit:cover; }
+    .track-info { flex:1; min-width:0; }
+    .track-title { font-size:14px; font-weight:bold; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .track-artist { font-size:12px; color:var(--text2); margin-top:2px; }
+    .track-meta { font-size:11px; color:var(--text2); margin-top:3px; display:flex; gap:8px; }
+    .track-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+    .track-like-btn { background:none; border:none; cursor:pointer; font-size:13px; color:var(--text2); padding:4px 6px; border-radius:4px; }
+    .track-like-btn:hover { color:var(--like-active); }
+    .track-like-btn.liked { color:var(--like-active); }
+    .track-del-btn { background:none; border:none; cursor:pointer; font-size:12px; color:#c0392b; padding:4px 6px; }
+    .track-play-indicator { font-size:18px; color:#4a76a8; }
+
+    /* Music player bar */
+    .music-player { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:10px; display:grid; grid-template-columns:48px 1fr auto; grid-template-rows:auto auto; gap:8px 12px; align-items:center; }
+    .mp-cover { width:48px; height:48px; border-radius:6px; background:linear-gradient(135deg,#4a76a8,#3d6690); display:flex; align-items:center; justify-content:center; font-size:20px; overflow:hidden; grid-row:1/3; }
+    .mp-cover img { width:100%; height:100%; object-fit:cover; }
+    .mp-info { min-width:0; }
+    .mp-title { font-size:14px; font-weight:bold; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .mp-artist { font-size:12px; color:var(--text2); margin-top:1px; }
+    .mp-controls { display:flex; align-items:center; gap:6px; }
+    .mp-btn { background:none; border:none; cursor:pointer; font-size:20px; padding:2px; color:var(--text); line-height:1; }
+    .mp-btn:hover { color:#4a76a8; }
+    .mp-play { font-size:24px; }
+    .mp-progress-wrap { grid-column:2/3; display:flex; align-items:center; gap:6px; }
+    .mp-progress { flex:1; -webkit-appearance:none; height:4px; border-radius:2px; background:var(--border); cursor:pointer; }
+    .mp-progress::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:#4a76a8; }
+    .mp-time { font-size:11px; color:var(--text2); white-space:nowrap; min-width:30px; }
+    .mp-vol { grid-column:3/4; grid-row:2/3; display:flex; align-items:center; gap:4px; font-size:13px; }
+    .mp-vol input { width:70px; -webkit-appearance:none; height:4px; border-radius:2px; background:var(--border); cursor:pointer; }
+    .mp-vol input::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:#4a76a8; }
+
+    #music-search-bar { margin-bottom:8px; }
+
+    @media (max-width:768px) {
+      .music-player { grid-template-columns:44px 1fr; grid-template-rows:auto auto auto; }
+      .mp-cover { grid-row:1/3; }
+      .mp-controls { grid-column:2/3; }
+      .mp-progress-wrap { grid-column:1/3; }
+      .mp-vol { display:none; }
+      .track-card { padding:10px 12px; gap:10px; }
+      .track-cover { width:46px; height:46px; }
+    }
   </style>
 </head>
 <body>
@@ -450,6 +511,7 @@
   <nav>
     <button id="tab-btn-news" class="active" onclick="setTab('news')">Новости</button>
     <button id="tab-btn-my" onclick="setTab('my')">Мои записи</button>
+    <button id="tab-btn-music" onclick="setTab('music')">🎵 Музыка</button>
     <button id="tab-btn-notifications" onclick="setTab('notifications')" style="position:relative">
       🔔 <span id="notif-badge" style="display:none;position:absolute;top:2px;right:2px;background:#e74c3c;color:white;border-radius:50%;width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;font-weight:bold"></span>
     </button>
@@ -471,6 +533,7 @@
       <div class="side-header">Меню</div>
       <a id="sl-news" class="active" onclick="setTab('news')">📰 Новости</a>
       <a id="sl-my" onclick="setTab('my')">✏️ Мои записи</a>
+      <a id="sl-music" onclick="setTab('music')">🎵 Музыка</a>
       <a id="sl-notifications" onclick="setTab('notifications')">🔔 Уведомления <span id="sb-notif-count" style="display:none;background:#e74c3c;color:white;border-radius:10px;padding:0 5px;font-size:11px;margin-left:4px"></span></a>
       <a id="sl-profile" onclick="setTab('profile')">👤 Мой профиль</a>
       <a id="sl-settings" onclick="setTab('settings')">⚙️ Настройки</a>
@@ -563,6 +626,66 @@
         <div id="notifications-list"><div style="color:var(--text2);text-align:center;padding:20px">Загрузка...</div></div>
       </div>
     </div>
+
+    <div id="music-panel" style="display:none">
+      <!-- Upload form -->
+      <div class="music-upload-card" id="music-upload-card">
+        <div class="music-upload-header" onclick="toggleMusicUpload()">
+          <span>🎵 Загрузить трек</span>
+          <span id="music-upload-arrow">▾</span>
+        </div>
+        <div class="music-upload-body" id="music-upload-body" style="display:none">
+          <div class="music-cover-row">
+            <div class="music-cover-pick" id="music-cover-pick" onclick="document.getElementById('music-cover-input').click()">
+              <div id="music-cover-preview-wrap">
+                <span style="font-size:32px">🖼</span>
+                <div style="font-size:12px;color:var(--text2);margin-top:6px">Обложка</div>
+              </div>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+              <input type="text" id="music-title-input" class="music-text-input" placeholder="Название трека"/>
+              <input type="text" id="music-artist-input" class="music-text-input" placeholder="Исполнитель"/>
+              <input type="file" id="music-cover-input" accept=".jpg,.jpeg,.png,.webp,.gif" style="display:none" onchange="previewMusicCover(this)"/>
+            </div>
+          </div>
+          <div class="music-audio-pick" id="music-audio-pick" onclick="document.getElementById('music-audio-input').click()">
+            <span id="music-audio-label">🎵 Выбрать аудиофайл (MP3, OGG, WAV, FLAC…)</span>
+          </div>
+          <input type="file" id="music-audio-input" accept="audio/*" style="display:none" onchange="onMusicAudioPick(this)"/>
+          <div style="margin-top:10px;display:flex;justify-content:flex-end">
+            <button class="btn btn-blue" onclick="uploadTrack()">Опубликовать</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Player bar (hidden until track selected) -->
+      <div class="music-player" id="music-player" style="display:none">
+        <div class="mp-cover" id="mp-cover">🎵</div>
+        <div class="mp-info">
+          <div class="mp-title" id="mp-title">—</div>
+          <div class="mp-artist" id="mp-artist">—</div>
+        </div>
+        <div class="mp-controls">
+          <button class="mp-btn" onclick="skipTrack(-1)">⏮</button>
+          <button class="mp-btn mp-play" id="mp-play-btn" onclick="togglePlay()">▶</button>
+          <button class="mp-btn" onclick="skipTrack(1)">⏭</button>
+        </div>
+        <div class="mp-progress-wrap">
+          <span class="mp-time" id="mp-cur">0:00</span>
+          <input type="range" class="mp-progress" id="mp-progress" value="0" min="0" max="100" step="0.1" oninput="seekAudio(this.value)"/>
+          <span class="mp-time" id="mp-dur">0:00</span>
+        </div>
+        <div class="mp-vol">
+          🔊 <input type="range" id="mp-vol" value="80" min="0" max="100" oninput="setVolume(this.value)"/>
+        </div>
+      </div>
+
+      <!-- Track list -->
+      <div id="music-search-bar" style="margin-bottom:8px">
+        <input type="text" id="music-search" class="music-text-input" placeholder="🔍 Поиск треков..." oninput="filterTracks()" style="width:100%"/>
+      </div>
+      <div id="tracks-list"></div>
+    </div>
   </div>
 </div>
 
@@ -575,9 +698,9 @@
     <span class="bn-icon">📰</span>
     <span class="bn-label">Новости</span>
   </button>
-  <button id="bn-my" onclick="setTab('my')">
-    <span class="bn-icon">✏️</span>
-    <span class="bn-label">Мои</span>
+  <button id="bn-music" onclick="setTab('music')">
+    <span class="bn-icon">🎵</span>
+    <span class="bn-label">Музыка</span>
   </button>
   <button id="bn-notifications" onclick="setTab('notifications')">
     <span class="bn-icon">🔔</span>
@@ -691,7 +814,7 @@
   // ── TABS ──────────────────────────────────────────
   function setTab(tab) {
     currentTab = tab;
-    ['news','my','settings','profile','notifications'].forEach(t => {
+    ['news','my','settings','profile','notifications','music'].forEach(t => {
       const btn = document.getElementById('tab-btn-' + t);
       const sl = document.getElementById('sl-' + t);
       const bn = document.getElementById('bn-' + t);
@@ -703,19 +826,21 @@
       const fb = document.getElementById('ftab-' + t);
       if (fb) fb.classList.toggle('active', t === tab);
     });
-    const isContent = tab !== 'settings' && tab !== 'profile' && tab !== 'notifications';
+    const isContent = tab === 'news' || tab === 'my';
     document.getElementById('write-block').style.display = isContent ? 'block' : 'none';
     document.getElementById('posts-list').style.display = isContent ? 'block' : 'none';
     document.querySelector('.feed-tabs').style.display = isContent ? 'flex' : 'none';
     document.getElementById('settings-panel').style.display = tab === 'settings' ? 'block' : 'none';
     document.getElementById('profile-panel').style.display = tab === 'profile' ? 'block' : 'none';
     document.getElementById('notifications-panel').style.display = tab === 'notifications' ? 'block' : 'none';
+    document.getElementById('music-panel').style.display = tab === 'music' ? 'block' : 'none';
     if (tab === 'settings' && me) {
       document.getElementById('bio-input').value = me.bio || '';
       renderAvatar(document.getElementById('settings-av-preview'), me);
     }
     if (tab === 'profile') loadProfile(null);
     if (tab === 'notifications') loadNotifications();
+    if (tab === 'music') loadTracks();
     if (isContent) loadPosts();
   }
 
@@ -1223,7 +1348,7 @@
 
   async function openUserProfile(userId) {
     currentTab = 'profile';
-    ['news','my','settings','profile','notifications'].forEach(t => {
+    ['news','my','settings','profile','notifications','music'].forEach(t => {
       const btn = document.getElementById('tab-btn-' + t);
       const sl = document.getElementById('sl-' + t);
       const bn = document.getElementById('bn-' + t);
@@ -1240,8 +1365,196 @@
     document.querySelector('.feed-tabs').style.display = 'none';
     document.getElementById('settings-panel').style.display = 'none';
     document.getElementById('notifications-panel').style.display = 'none';
+    document.getElementById('music-panel').style.display = 'none';
     document.getElementById('profile-panel').style.display = 'block';
     await loadProfile(userId);
+  }
+
+  // ── MUSIC PLATFORM ────────────────────────────────
+  let allTracks = [];
+  let currentTrackIdx = -1;
+  const playerAudio = new Audio();
+  let playerPlaying = false;
+
+  function toggleMusicUpload() {
+    const body = document.getElementById('music-upload-body');
+    const arrow = document.getElementById('music-upload-arrow');
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : 'block';
+    arrow.textContent = open ? '▾' : '▴';
+  }
+
+  function previewMusicCover(input) {
+    if (!input.files.length) return;
+    const file = input.files[0];
+    const url = URL.createObjectURL(file);
+    const wrap = document.getElementById('music-cover-preview-wrap');
+    wrap.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;border-radius:6px"/>`;
+  }
+
+  function onMusicAudioPick(input) {
+    if (!input.files.length) return;
+    document.getElementById('music-audio-label').textContent = '🎵 ' + input.files[0].name;
+  }
+
+  async function uploadTrack() {
+    const title = document.getElementById('music-title-input').value.trim();
+    const artist = document.getElementById('music-artist-input').value.trim();
+    const audioInput = document.getElementById('music-audio-input');
+    const coverInput = document.getElementById('music-cover-input');
+    if (!title) { toast('Введите название трека', '#e74c3c'); return; }
+    if (!artist) { toast('Введите исполнителя', '#e74c3c'); return; }
+    if (!audioInput.files.length) { toast('Выберите аудиофайл', '#e74c3c'); return; }
+    const fd = new FormData();
+    fd.append('title', title);
+    fd.append('artist', artist);
+    fd.append('audio', audioInput.files[0]);
+    if (coverInput.files.length) fd.append('cover', coverInput.files[0]);
+    const btn = event.target;
+    btn.disabled = true; btn.textContent = 'Загрузка...';
+    const r = await fetch('/api/tracks', { method:'POST', body:fd });
+    const data = await r.json();
+    btn.disabled = false; btn.textContent = 'Опубликовать';
+    if (data.error) { toast(data.error, '#e74c3c'); return; }
+    document.getElementById('music-title-input').value = '';
+    document.getElementById('music-artist-input').value = '';
+    audioInput.value = ''; coverInput.value = '';
+    document.getElementById('music-audio-label').textContent = '🎵 Выбрать аудиофайл (MP3, OGG, WAV, FLAC…)';
+    document.getElementById('music-cover-preview-wrap').innerHTML = '<span style="font-size:32px">🖼</span><div style="font-size:12px;color:var(--text2);margin-top:6px">Обложка</div>';
+    toggleMusicUpload();
+    toast('Трек опубликован! 🎵');
+    await loadTracks();
+  }
+
+  async function loadTracks() {
+    const tracks = await api('GET', '/api/tracks');
+    allTracks = tracks;
+    renderTrackList(tracks);
+  }
+
+  function filterTracks() {
+    const q = document.getElementById('music-search').value.toLowerCase();
+    renderTrackList(allTracks.filter(t => t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q)));
+  }
+
+  function renderTrackList(tracks) {
+    const list = document.getElementById('tracks-list');
+    if (!tracks.length) {
+      list.innerHTML = '<div class="empty">Треков пока нет. Будьте первым! 🎵</div>';
+      return;
+    }
+    list.innerHTML = tracks.map((t, i) => {
+      const idx = allTracks.findIndex(x => x.id === t.id);
+      const coverHtml = t.cover
+        ? `<img src="${t.cover}" alt="cover"/>`
+        : '🎵';
+      const liked = parseInt(t.user_liked) > 0;
+      const likes = parseInt(t.likes_count) || 0;
+      const plays = parseInt(t.plays) || 0;
+      const canDel = me && (t.user_id === me.id || amAdmin);
+      return `<div class="track-card" id="track-card-${t.id}" onclick="playTrack(${idx})">
+        <div class="track-cover">${coverHtml}</div>
+        <div class="track-info">
+          <div class="track-title">${t.title}</div>
+          <div class="track-artist">${t.artist}</div>
+          <div class="track-meta">
+            <span>👤 ${t.username}</span>
+            <span>▶ ${plays}</span>
+          </div>
+        </div>
+        <div class="track-actions" onclick="event.stopPropagation()">
+          ${me ? `<button class="track-like-btn ${liked?'liked':''}" onclick="likeTrack(${t.id},this)">❤ ${likes > 0 ? likes : ''}</button>` : ''}
+          ${canDel ? `<button class="track-del-btn" onclick="deleteTrack(${t.id})">✕</button>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function playTrack(idx) {
+    if (idx < 0 || idx >= allTracks.length) return;
+    currentTrackIdx = idx;
+    const t = allTracks[idx];
+    playerAudio.src = `/api/tracks/${t.id}/audio`;
+    playerAudio.volume = (document.getElementById('mp-vol')?.value || 80) / 100;
+    playerAudio.play();
+    playerPlaying = true;
+    document.getElementById('mp-play-btn').textContent = '⏸';
+    document.getElementById('mp-title').textContent = t.title;
+    document.getElementById('mp-artist').textContent = t.artist;
+    const mpCover = document.getElementById('mp-cover');
+    mpCover.innerHTML = t.cover ? `<img src="${t.cover}" alt="cover"/>` : '🎵';
+    document.getElementById('music-player').style.display = 'grid';
+    // Highlight playing card
+    document.querySelectorAll('.track-card').forEach(c => c.classList.remove('playing'));
+    const card = document.getElementById('track-card-' + t.id);
+    if (card) card.classList.add('playing');
+  }
+
+  function togglePlay() {
+    if (playerPlaying) {
+      playerAudio.pause();
+      playerPlaying = false;
+      document.getElementById('mp-play-btn').textContent = '▶';
+    } else {
+      playerAudio.play();
+      playerPlaying = true;
+      document.getElementById('mp-play-btn').textContent = '⏸';
+    }
+  }
+
+  function skipTrack(dir) {
+    const next = currentTrackIdx + dir;
+    if (next >= 0 && next < allTracks.length) playTrack(next);
+  }
+
+  function seekAudio(val) {
+    if (playerAudio.duration) playerAudio.currentTime = (val / 100) * playerAudio.duration;
+  }
+
+  function setVolume(val) { playerAudio.volume = val / 100; }
+
+  function fmtTime(s) {
+    if (!s || isNaN(s)) return '0:00';
+    const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+    return m + ':' + String(sec).padStart(2, '0');
+  }
+
+  playerAudio.addEventListener('timeupdate', () => {
+    if (!playerAudio.duration) return;
+    const pct = (playerAudio.currentTime / playerAudio.duration) * 100;
+    const prog = document.getElementById('mp-progress');
+    if (prog) prog.value = pct;
+    const cur = document.getElementById('mp-cur');
+    if (cur) cur.textContent = fmtTime(playerAudio.currentTime);
+  });
+  playerAudio.addEventListener('loadedmetadata', () => {
+    const dur = document.getElementById('mp-dur');
+    if (dur) dur.textContent = fmtTime(playerAudio.duration);
+  });
+  playerAudio.addEventListener('ended', () => skipTrack(1));
+
+  async function likeTrack(trackId, btn) {
+    if (!me) { toast('Войди чтобы ставить лайки', '#e74c3c'); return; }
+    const data = await api('POST', `/api/tracks/${trackId}/like`);
+    btn.classList.toggle('liked', data.liked);
+    const t = allTracks.find(x => x.id === trackId);
+    if (t) {
+      t.user_liked = data.liked ? 1 : 0;
+      t.likes_count = (parseInt(t.likes_count) || 0) + (data.liked ? 1 : -1);
+      btn.textContent = '❤ ' + (t.likes_count > 0 ? t.likes_count : '');
+    }
+  }
+
+  async function deleteTrack(trackId) {
+    if (!confirm('Удалить трек?')) return;
+    await api('DELETE', `/api/tracks/${trackId}`);
+    if (allTracks[currentTrackIdx]?.id === trackId) {
+      playerAudio.pause();
+      document.getElementById('music-player').style.display = 'none';
+      currentTrackIdx = -1;
+    }
+    await loadTracks();
+    toast('Трек удалён', '#e74c3c');
   }
 
   // ── INIT ──────────────────────────────────────────
