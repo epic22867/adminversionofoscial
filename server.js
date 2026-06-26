@@ -98,6 +98,17 @@ async function initDB() {
       size INTEGER,
       created_at TIMESTAMP DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      actor_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
+      comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
+      is_read BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
   `);
   console.log('✅ Таблицы готовы');
 }
@@ -342,6 +353,14 @@ app.post('/api/posts/:id/like', requireAuth, async (req, res) => {
     res.json({ liked: false });
   } else {
     await pool.query('INSERT INTO likes (post_id, user_id) VALUES ($1, $2)', [postId, userId]);
+    // Notify post owner (not self)
+    const postOwner = await pool.query('SELECT user_id FROM posts WHERE id=$1', [postId]);
+    if (postOwner.rows[0] && postOwner.rows[0].user_id !== userId) {
+      await pool.query(
+        'INSERT INTO notifications (user_id, actor_id, type, post_id) VALUES ($1, $2, $3, $4)',
+        [postOwner.rows[0].user_id, userId, 'like', postId]
+      );
+    }
     res.json({ liked: true });
   }
 });
@@ -398,6 +417,14 @@ app.post('/api/posts/:id/comments', requireAuth, async (req, res) => {
       }
     }
   }
+  // Notify post owner (not self)
+  const postOwner = await pool.query('SELECT user_id FROM posts WHERE id=$1', [req.params.id]);
+  if (postOwner.rows[0] && postOwner.rows[0].user_id !== req.session.userId) {
+    await pool.query(
+      'INSERT INTO notifications (user_id, actor_id, type, post_id, comment_id) VALUES ($1, $2, $3, $4, $5)',
+      [postOwner.rows[0].user_id, req.session.userId, 'comment', req.params.id, commentId]
+    );
+  }
   res.json(rows[0]);
 });
 
@@ -423,6 +450,43 @@ app.delete('/api/file/:id', requireAuth, async (req, res) => {
 // ── ADMIN CHECK ──────────────────────────────────────
 app.get('/api/is-admin', requireAuth, async (req, res) => {
   res.json({ admin: await isAdmin(req.session.userId) });
+});
+
+// ── NOTIFICATIONS ────────────────────────────────────
+app.get('/api/notifications', requireAuth, async (req, res) => {
+  const { rows } = await pool.query(`
+    SELECT n.id, n.type, n.is_read, n.created_at, n.post_id, n.comment_id,
+      u.username AS actor_username, (u.avatar_data IS NOT NULL) AS actor_has_avatar, u.id AS actor_id,
+      p.title AS post_title
+    FROM notifications n
+    JOIN users u ON n.actor_id = u.id
+    LEFT JOIN posts p ON n.post_id = p.id
+    WHERE n.user_id = $1
+    ORDER BY n.created_at DESC
+    LIMIT 50
+  `, [req.session.userId]);
+  res.json(rows.map(r => ({
+    ...r,
+    actor_avatar: r.actor_has_avatar ? `/api/avatar/${r.actor_id}` : ''
+  })));
+});
+
+app.get('/api/notifications/unread-count', requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    'SELECT COUNT(*) AS count FROM notifications WHERE user_id=$1 AND is_read=FALSE',
+    [req.session.userId]
+  );
+  res.json({ count: parseInt(rows[0].count) });
+});
+
+app.post('/api/notifications/read-all', requireAuth, async (req, res) => {
+  await pool.query('UPDATE notifications SET is_read=TRUE WHERE user_id=$1', [req.session.userId]);
+  res.json({ ok: true });
+});
+
+app.post('/api/notifications/:id/read', requireAuth, async (req, res) => {
+  await pool.query('UPDATE notifications SET is_read=TRUE WHERE id=$1 AND user_id=$2', [req.params.id, req.session.userId]);
+  res.json({ ok: true });
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
