@@ -145,7 +145,7 @@ app.use(session({
 }));
 
 // ── КПК-ДЕТЕКЦИЯ ─────────────────────────────────────
-const PDA_UA = /Windows CE|PocketPC|Pocket PC|Palm|Symbian|MIDP|J2ME|NetFront|UP\.Browser|DoCoMo|KDDI|Blazer|Xiino|Series60|Series40|SonyEricsson|Nokia/i;
+const PDA_UA = /Opera Mini|Opera Mobi|Windows CE|PocketPC|Pocket PC|Palm|Symbian|MIDP|J2ME|NetFront|UP\.Browser|DoCoMo|KDDI|Blazer|Xiino|Series60|Series40|SonyEricsson|Nokia|IEMobile|WPDesktop/i;
 
 app.use((req, res, next) => {
   req.isPDA = PDA_UA.test(req.headers['user-agent'] || '');
@@ -165,6 +165,14 @@ function requireAuth(req, res, next) {
 }
 
 app.get('/api/status', (req, res) => res.json({ ok: true, uptime: process.uptime() }));
+
+// Отладка: открой этот URL с КПК чтобы увидеть свой User-Agent
+app.get('/api/ua', (req, res) => {
+  res.json({
+    ua: req.headers['user-agent'] || '(пусто)',
+    isPDA: req.isPDA,
+  });
+});
 
 // ── AUTH ─────────────────────────────────────────────
 app.post('/api/register', async (req, res) => {
@@ -617,6 +625,8 @@ app.get('*', (req, res) => {
     if (err) return res.status(500).send('Server error');
     const patched = html.replace('<body>', '<body class="pda">');
     res.set('Content-Type', 'text/html; charset=utf-8');
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
     res.send(patched);
   });
 });
