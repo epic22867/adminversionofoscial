@@ -125,7 +125,72 @@
 
     /* PROFILE PAGE */
     .profile-page { background:var(--card); border-radius:4px; border:1px solid var(--border); overflow:hidden; margin-bottom:10px; }
-    .profile-cover { height:140px; background:linear-gradient(135deg,#4a76a8,#3d6690); }
+    .profile-cover {
+      height:140px;
+      background:linear-gradient(135deg,#4a76a8,#3d6690);
+      position:relative;
+      overflow:hidden;
+      cursor:pointer;
+    }
+    .profile-cover img.cover-img { width:100%; height:100%; object-fit:cover; display:block; }
+    .profile-cover .cover-edit-btn {
+      position:absolute; bottom:8px; right:10px;
+      background:rgba(0,0,0,0.45); color:white; font-size:12px;
+      border:none; border-radius:4px; padding:4px 10px; cursor:pointer;
+      display:none;
+    }
+    .profile-cover:hover .cover-edit-btn { display:block; }
+    .profile-cover .cover-edit-menu {
+      position:absolute; bottom:36px; right:10px;
+      background:var(--card); border:1px solid var(--border); border-radius:6px;
+      padding:6px 0; min-width:180px; z-index:20; box-shadow:0 4px 14px rgba(0,0,0,0.15);
+      display:none;
+    }
+    .profile-cover .cover-edit-menu.open { display:block; }
+    .profile-cover .cover-edit-menu a {
+      display:block; padding:7px 14px; font-size:13px; color:var(--text3);
+      cursor:pointer; border-bottom:1px solid var(--border);
+    }
+    .profile-cover .cover-edit-menu a:last-child { border-bottom:none; }
+    .profile-cover .cover-edit-menu a:hover { background:var(--side-link); }
+
+    /* Profile image space below profile box */
+    .profile-photo-space {
+      background:var(--card); border-radius:4px; border:1px solid var(--border);
+      margin-bottom:10px; padding:14px;
+    }
+    .profile-photo-space h4 { font-size:13px; color:var(--text2); text-transform:uppercase; letter-spacing:.5px; margin-bottom:10px; }
+    .profile-photo-grid { display:flex; flex-wrap:wrap; gap:8px; }
+    .profile-photo-item {
+      width:100px; height:100px; border-radius:6px; overflow:hidden;
+      border:1px solid var(--border); position:relative; flex-shrink:0; background:var(--side-link);
+      display:flex; align-items:center; justify-content:center;
+    }
+    .profile-photo-item img { width:100%; height:100%; object-fit:cover; cursor:pointer; }
+    .profile-photo-add {
+      width:100px; height:100px; border-radius:6px; border:2px dashed var(--input-border);
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      cursor:pointer; font-size:11px; color:var(--text2); gap:4px; background:var(--input-bg);
+    }
+    .profile-photo-add:hover { border-color:#4a76a8; color:#4a76a8; }
+    .profile-photo-add span { font-size:22px; }
+    .profile-photo-url-row { display:flex; gap:6px; margin-top:10px; }
+    .profile-photo-url-row input { flex:1; padding:6px 8px; border:1px solid var(--input-border); border-radius:4px; font-size:12px; background:var(--input-bg); color:var(--text); }
+    .profile-photo-url-row input:focus { outline:none; border-color:#4a76a8; }
+
+    /* Background changer */
+    .bg-options { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+    .bg-swatch {
+      width:52px; height:38px; border-radius:6px; border:2px solid var(--border);
+      cursor:pointer; transition:border-color .15s; flex-shrink:0;
+    }
+    .bg-swatch.selected { border-color:#4a76a8; box-shadow:0 0 0 2px rgba(74,118,168,0.35); }
+    .bg-swatch:hover { border-color:#4a76a8; }
+    .bg-swatch.bg-default { background:var(--bg); }
+    .bg-input-row { display:flex; gap:6px; align-items:center; margin-top:4px; flex-wrap:wrap; }
+    .bg-input-row input[type=color] { width:42px; height:32px; border:1px solid var(--input-border); border-radius:4px; cursor:pointer; padding:2px; background:var(--input-bg); }
+    .bg-input-row input[type=text] { flex:1; min-width:120px; padding:6px 8px; border:1px solid var(--input-border); border-radius:4px; font-size:12px; background:var(--input-bg); color:var(--text); }
+    .bg-input-row input[type=text]:focus { outline:none; border-color:#4a76a8; }
     .profile-info { padding:0 16px 16px; display:flex; gap:14px; align-items:flex-end; }
     .profile-big-av { width:80px; height:80px; border-radius:6px; border:3px solid var(--card); background:#4a76a8; display:flex; align-items:center; justify-content:center; color:white; font-size:32px; font-weight:bold; margin-top:-40px; overflow:hidden; flex-shrink:0; }
     .profile-big-av img { width:100%; height:100%; object-fit:cover; }
@@ -364,6 +429,8 @@
       /* Profile */
       .profile-page { border-radius:8px; }
       .profile-cover { height:100px; }
+      .profile-photo-item { width:80px; height:80px; }
+      .profile-photo-add { width:80px; height:80px; font-size:10px; }
       .profile-info { padding:0 14px 14px; gap:12px; }
       .profile-big-av { width:68px; height:68px; font-size:26px; margin-top:-34px; }
       .profile-details h2 { font-size:17px; }
@@ -616,12 +683,49 @@
             </div>
           </div>
         </div>
+
+        <div class="settings-section">
+          <h4>Фон страницы</h4>
+          <div class="bg-options" id="bg-swatches">
+            <div class="bg-swatch bg-default selected" title="По умолчанию" onclick="applyBg('default','')" id="bg-sw-default"></div>
+            <div class="bg-swatch" style="background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)" title="Ночной" onclick="applyBg('gradient','linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)')"></div>
+            <div class="bg-swatch" style="background:linear-gradient(135deg,#e0f7fa,#b2ebf2,#80deea)" title="Лёд" onclick="applyBg('gradient','linear-gradient(135deg,#e0f7fa,#b2ebf2,#80deea)')"></div>
+            <div class="bg-swatch" style="background:linear-gradient(135deg,#fce4ec,#f8bbd0,#f48fb1)" title="Розовый" onclick="applyBg('gradient','linear-gradient(135deg,#fce4ec,#f8bbd0,#f48fb1)')"></div>
+            <div class="bg-swatch" style="background:linear-gradient(135deg,#e8f5e9,#c8e6c9,#a5d6a7)" title="Лес" onclick="applyBg('gradient','linear-gradient(135deg,#e8f5e9,#c8e6c9,#a5d6a7)')"></div>
+            <div class="bg-swatch" style="background:linear-gradient(135deg,#fff8e1,#ffecb3,#ffe082)" title="Пшеница" onclick="applyBg('gradient','linear-gradient(135deg,#fff8e1,#ffecb3,#ffe082)')"></div>
+            <div class="bg-swatch" style="background:linear-gradient(135deg,#f3e5f5,#e1bee7,#ce93d8)" title="Лаванда" onclick="applyBg('gradient','linear-gradient(135deg,#f3e5f5,#e1bee7,#ce93d8)')"></div>
+          </div>
+          <div class="bg-input-row">
+            <input type="color" id="bg-color-pick" value="#e7e9ec" title="Выбрать цвет" oninput="applyBg('color',this.value)"/>
+            <input type="text" id="bg-image-url" placeholder="URL изображения фона..."/>
+            <button class="btn btn-blue btn-sm" onclick="applyBg('image',document.getElementById('bg-image-url').value.trim())">Применить</button>
+          </div>
+          <div style="margin-top:8px">
+            <button class="btn btn-gray btn-sm" onclick="saveBgToServer()" title="Сохранить фон">💾 Сохранить фон</button>
+          </div>
+        </div>
       </div>
     </div>
 
     <div id="profile-panel" style="display:none">
       <div class="profile-page">
-        <div class="profile-cover"></div>
+        <div class="profile-cover" id="profile-cover-el">
+          <img class="cover-img" id="profile-cover-img" src="" style="display:none" alt="banner"/>
+          <button class="cover-edit-btn" id="cover-edit-btn" onclick="toggleCoverMenu(event)">✏️ Изменить обложку</button>
+          <div class="cover-edit-menu" id="cover-edit-menu">
+            <a onclick="document.getElementById('banner-file-input').click();closeCoverMenu()">📷 Загрузить изображение</a>
+            <a onclick="showBannerUrlInput()">🔗 Вставить ссылку</a>
+            <a onclick="clearBanner()" style="color:#c0392b">✕ Удалить обложку</a>
+          </div>
+        </div>
+        <input type="file" id="banner-file-input" accept=".png,.jpg,.jpeg,.gif,.webp" style="display:none" onchange="uploadBanner(this)"/>
+        <div id="banner-url-row" style="display:none; padding:8px 12px; background:var(--side-link); border-bottom:1px solid var(--border)">
+          <div style="display:flex;gap:6px">
+            <input type="text" id="banner-url-input" placeholder="https://... ссылка на изображение" style="flex:1;padding:6px 8px;border:1px solid var(--input-border);border-radius:4px;font-size:13px;background:var(--input-bg);color:var(--text)"/>
+            <button class="btn btn-blue btn-sm" onclick="saveBannerUrl()">Применить</button>
+            <button class="btn btn-gray btn-sm" onclick="document.getElementById('banner-url-row').style.display='none'">✕</button>
+          </div>
+        </div>
         <div class="profile-info">
           <div class="profile-big-av" id="profile-big-av"></div>
           <div class="profile-details">
@@ -630,6 +734,22 @@
             <div class="profile-joined" id="profile-joined"></div>
           </div>
         </div>
+      </div>
+
+      <!-- Profile photo/image space -->
+      <div class="profile-photo-space" id="profile-photo-space">
+        <h4>📸 Фотографии профиля</h4>
+        <div class="profile-photo-grid" id="profile-photo-grid">
+          <div class="profile-photo-add" id="profile-photo-add-btn" onclick="document.getElementById('profile-photo-file').click()" title="Загрузить фото">
+            <span>＋</span>
+            Загрузить
+          </div>
+        </div>
+        <div class="profile-photo-url-row">
+          <input type="text" id="profile-photo-url-input" placeholder="Вставить ссылку на изображение..."/>
+          <button class="btn btn-blue btn-sm" onclick="addPhotoByUrl()">Добавить</button>
+        </div>
+        <input type="file" id="profile-photo-file" accept=".png,.jpg,.jpeg,.gif,.webp" multiple style="display:none" onchange="uploadProfilePhotos(this)"/>
       </div>
     </div>
 
@@ -775,6 +895,173 @@
     localStorage.setItem('theme', theme);
   }
 
+  // ── BACKGROUND CHANGER ────────────────────────────
+  let _currentBgType = 'default', _currentBgValue = '';
+
+  function applyBg(type, value) {
+    _currentBgType = type; _currentBgValue = value;
+    const body = document.body;
+    body.style.backgroundImage = '';
+    body.style.backgroundColor = '';
+    if (type === 'default') {
+      body.style.background = '';
+    } else if (type === 'color') {
+      body.style.background = value;
+    } else if (type === 'gradient') {
+      body.style.background = value;
+    } else if (type === 'image' && value) {
+      body.style.backgroundImage = `url("${value}")`;
+      body.style.backgroundSize = 'cover';
+      body.style.backgroundAttachment = 'fixed';
+      body.style.backgroundPosition = 'center';
+    }
+    localStorage.setItem('bgType', type);
+    localStorage.setItem('bgValue', value);
+    // Update swatch selection
+    document.querySelectorAll('.bg-swatch').forEach(s => s.classList.remove('selected'));
+    document.getElementById('bg-sw-default').classList.toggle('selected', type === 'default');
+  }
+
+  async function saveBgToServer() {
+    if (!me) return;
+    await api('POST', '/api/profile/background', { bg_type: _currentBgType, bg_value: _currentBgValue });
+    toast('Фон сохранён!');
+  }
+
+  function loadBg(bgType, bgValue) {
+    if (!bgType || bgType === 'default') return;
+    applyBg(bgType, bgValue);
+  }
+
+  // ── BANNER ────────────────────────────────────────
+  function toggleCoverMenu(e) {
+    e.stopPropagation();
+    const menu = document.getElementById('cover-edit-menu');
+    menu.classList.toggle('open');
+  }
+  function closeCoverMenu() {
+    document.getElementById('cover-edit-menu').classList.remove('open');
+  }
+  document.addEventListener('click', () => closeCoverMenu());
+
+  function showBannerUrlInput() {
+    document.getElementById('banner-url-row').style.display = 'block';
+    document.getElementById('banner-url-input').focus();
+  }
+
+  function setBannerImg(url) {
+    const img = document.getElementById('profile-cover-img');
+    const cover = document.getElementById('profile-cover-el');
+    if (url) {
+      img.src = url;
+      img.style.display = 'block';
+      cover.style.background = '';
+    } else {
+      img.src = '';
+      img.style.display = 'none';
+      cover.style.background = 'linear-gradient(135deg,#4a76a8,#3d6690)';
+    }
+  }
+
+  async function uploadBanner(input) {
+    if (!input.files.length) return;
+    const fd = new FormData();
+    fd.append('banner', input.files[0]);
+    const r = await fetch('/api/profile/banner', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.error) { toast(data.error, '#e74c3c'); return; }
+    me.banner = data.url + '?t=' + Date.now();
+    setBannerImg(me.banner);
+    input.value = '';
+    toast('Обложка обновлена!');
+  }
+
+  async function saveBannerUrl() {
+    const url = document.getElementById('banner-url-input').value.trim();
+    const data = await api('POST', '/api/profile/banner-url', { url });
+    if (data.error) { toast(data.error, '#e74c3c'); return; }
+    me.banner = url;
+    setBannerImg(url);
+    document.getElementById('banner-url-row').style.display = 'none';
+    document.getElementById('banner-url-input').value = '';
+    toast('Обложка обновлена!');
+  }
+
+  async function clearBanner() {
+    await api('POST', '/api/profile/banner-url', { url: '' });
+    me.banner = '';
+    setBannerImg('');
+    toast('Обложка удалена', '#e74c3c');
+  }
+
+  // ── PROFILE PHOTOS ────────────────────────────────
+  // Stored in localStorage as array of {url, type:'upload'|'url'}
+  let profilePhotos = [];
+
+  function loadProfilePhotos(userId) {
+    const isOwn = me && userId === me.id;
+    const key = 'profilePhotos_' + userId;
+    profilePhotos = JSON.parse(localStorage.getItem(key) || '[]');
+    renderProfilePhotos(isOwn, userId);
+  }
+
+  function saveProfilePhotos(userId) {
+    localStorage.setItem('profilePhotos_' + userId, JSON.stringify(profilePhotos));
+  }
+
+  function renderProfilePhotos(isOwn, userId) {
+    const grid = document.getElementById('profile-photo-grid');
+    const addBtn = document.getElementById('profile-photo-add-btn');
+    const space = document.getElementById('profile-photo-space');
+    if (!grid) return;
+    // Show/hide add controls
+    if (addBtn) addBtn.style.display = isOwn ? 'flex' : 'none';
+    document.getElementById('profile-photo-url-input').parentElement.style.display = isOwn ? 'flex' : 'none';
+    if (!isOwn && profilePhotos.length === 0) { space.style.display = 'none'; return; }
+    space.style.display = 'block';
+    // Render photos
+    const photoHtml = profilePhotos.map((p, i) => `
+      <div class="profile-photo-item">
+        <img src="${p.url}" alt="фото ${i+1}" onclick="openLightbox('img','${p.url}')"/>
+        ${isOwn ? `<button onclick="removeProfilePhoto(${i},'${userId}')" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.5);color:white;border:none;border-radius:50%;width:20px;height:20px;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">✕</button>` : ''}
+      </div>
+    `).join('');
+    // Place add button last
+    grid.innerHTML = photoHtml + (isOwn ? `<div class="profile-photo-add" onclick="document.getElementById('profile-photo-file').click()"><span>＋</span>Загрузить</div>` : '');
+  }
+
+  async function uploadProfilePhotos(input) {
+    if (!input.files.length || !me) return;
+    for (const file of input.files) {
+      const fd = new FormData(); fd.append('files', file);
+      const r = await fetch('/api/upload', { method:'POST', body:fd });
+      const data = await r.json();
+      if (data.files && data.files[0]) {
+        profilePhotos.push({ url: data.files[0].url });
+      }
+    }
+    saveProfilePhotos(me.id);
+    renderProfilePhotos(true, me.id);
+    input.value = '';
+    toast('Фото добавлено!');
+  }
+
+  function addPhotoByUrl() {
+    const url = document.getElementById('profile-photo-url-input').value.trim();
+    if (!url || !me) return;
+    profilePhotos.push({ url });
+    saveProfilePhotos(me.id);
+    renderProfilePhotos(true, me.id);
+    document.getElementById('profile-photo-url-input').value = '';
+    toast('Фото добавлено!');
+  }
+
+  function removeProfilePhoto(idx, userId) {
+    profilePhotos.splice(idx, 1);
+    saveProfilePhotos(userId);
+    renderProfilePhotos(true, userId);
+  }
+
   // ── AUTH ──────────────────────────────────────────
   function toggleAuth() {
     authMode = authMode === 'login' ? 'register' : 'login';
@@ -817,6 +1104,14 @@
     const bioInput = document.getElementById('bio-input');
     if (bioInput) bioInput.value = me.bio || '';
     renderAvatar(document.getElementById('settings-av-preview'), me);
+    // Restore background from localStorage or server
+    const savedBgType = localStorage.getItem('bgType');
+    const savedBgValue = localStorage.getItem('bgValue') || '';
+    if (savedBgType && savedBgType !== 'default') {
+      applyBg(savedBgType, savedBgValue);
+    } else if (me.bg_type && me.bg_type !== 'default') {
+      applyBg(me.bg_type, me.bg_value || '');
+    }
     loadPosts();
     updateNotifBadge();
     setInterval(updateNotifBadge, 30000);
@@ -1344,10 +1639,12 @@
   async function loadProfile(userId) {
     if (!me) return;
     const targetId = userId || me.id;
+    const isOwn = targetId === me.id;
     const user = await api('GET', `/api/profile/${targetId}`);
     if (!userId) {
       me.bio = user.bio;
       me.avatar = user.avatar;
+      me.banner = user.banner;
     }
     const avEl = document.getElementById('profile-big-av');
     if (user.avatar) {
@@ -1359,9 +1656,20 @@
     document.getElementById('profile-bio-text').textContent = user.bio || 'Био не заполнено';
     const joined = new Date(user.created_at).toLocaleString('ru', {year:'numeric', month:'long', day:'numeric'});
     document.getElementById('profile-joined').textContent = `📅 На сайте с ${joined}`;
+    // Banner
+    setBannerImg(user.banner || '');
+    // Show cover edit only for own profile
+    const editBtn = document.getElementById('cover-edit-btn');
+    if (editBtn) editBtn.style.display = isOwn ? 'block' : 'none';
+    // Load background
+    if (isOwn && user.bg_type && user.bg_type !== 'default') {
+      applyBg(user.bg_type, user.bg_value || '');
+    }
+    // Profile photos
+    loadProfilePhotos(targetId);
     // Show/hide edit controls: only visible when viewing own profile
     const editControls = document.getElementById('profile-edit-hint');
-    if (editControls) editControls.style.display = (targetId === me.id) ? 'block' : 'none';
+    if (editControls) editControls.style.display = isOwn ? 'block' : 'none';
   }
 
   async function openUserProfile(userId) {
