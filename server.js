@@ -111,6 +111,13 @@ app.use(session({
   cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 },
 }));
 
+const ADMIN_USERNAME = 'FokzBurmalda';
+
+async function isAdmin(userId) {
+  const { rows } = await pool.query('SELECT username FROM users WHERE id = $1', [userId]);
+  return rows[0] && rows[0].username === ADMIN_USERNAME;
+}
+
 function requireAuth(req, res, next) {
   if (!req.session.userId) return res.status(401).json({ error: 'Не авторизован' });
   next();
@@ -286,8 +293,42 @@ app.post('/api/posts', requireAuth, async (req, res) => {
   res.json(rows[0]);
 });
 
+// ── EDIT POST (owner or admin) ───────────────────────
+app.put('/api/posts/:id', requireAuth, async (req, res) => {
+  const { title, content, addAttachments, removeFileIds } = req.body;
+  const userId = req.session.userId;
+  const admin = await isAdmin(userId);
+  const { rows } = await pool.query('SELECT user_id FROM posts WHERE id = $1', [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'Пост не найден' });
+  if (!admin && rows[0].user_id !== userId) return res.status(403).json({ error: 'Нет доступа' });
+
+  if (title !== undefined || content !== undefined) {
+    await pool.query(
+      'UPDATE posts SET title = COALESCE($1, title), content = COALESCE($2, content) WHERE id = $3',
+      [title || null, content !== undefined ? content : null, req.params.id]
+    );
+  }
+  // Remove selected files
+  if (removeFileIds && removeFileIds.length) {
+    await pool.query('DELETE FROM post_files WHERE id = ANY($1) AND post_id = $2', [removeFileIds, req.params.id]);
+  }
+  // Link new uploaded files
+  if (addAttachments && addAttachments.length) {
+    const ids = addAttachments.map(a => a.id).filter(Boolean);
+    if (ids.length) await pool.query('UPDATE post_files SET post_id = $1 WHERE id = ANY($2)', [req.params.id, ids]);
+  }
+  res.json({ ok: true });
+});
+
+// ── DELETE POST (owner or admin) ─────────────────────
 app.delete('/api/posts/:id', requireAuth, async (req, res) => {
-  await pool.query('DELETE FROM posts WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
+  const userId = req.session.userId;
+  const admin = await isAdmin(userId);
+  if (admin) {
+    await pool.query('DELETE FROM posts WHERE id = $1', [req.params.id]);
+  } else {
+    await pool.query('DELETE FROM posts WHERE id = $1 AND user_id = $2', [req.params.id, userId]);
+  }
   res.json({ ok: true });
 });
 
@@ -361,8 +402,27 @@ app.post('/api/posts/:id/comments', requireAuth, async (req, res) => {
 });
 
 app.delete('/api/comments/:id', requireAuth, async (req, res) => {
-  await pool.query('DELETE FROM comments WHERE id=$1 AND user_id=$2', [req.params.id, req.session.userId]);
+  const userId = req.session.userId;
+  const admin = await isAdmin(userId);
+  if (admin) {
+    await pool.query('DELETE FROM comments WHERE id=$1', [req.params.id]);
+  } else {
+    await pool.query('DELETE FROM comments WHERE id=$1 AND user_id=$2', [req.params.id, userId]);
+  }
   res.json({ ok: true });
+});
+
+// ── DELETE FILE FROM POST (admin only) ───────────────
+app.delete('/api/file/:id', requireAuth, async (req, res) => {
+  const admin = await isAdmin(req.session.userId);
+  if (!admin) return res.status(403).json({ error: 'Нет доступа' });
+  await pool.query('DELETE FROM post_files WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// ── ADMIN CHECK ──────────────────────────────────────
+app.get('/api/is-admin', requireAuth, async (req, res) => {
+  res.json({ admin: await isAdmin(req.session.userId) });
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
