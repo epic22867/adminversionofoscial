@@ -166,12 +166,11 @@ function requireAuth(req, res, next) {
 
 app.get('/api/status', (req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
-// Отладка: открой этот URL с КПК чтобы увидеть свой User-Agent
-app.get('/api/ua', (req, res) => {
-  res.json({
-    ua: req.headers['user-agent'] || '(пусто)',
-    isPDA: req.isPDA,
-  });
+// Отладка: открой /ua с КПК — покажет User-Agent в виде HTML
+app.get('/ua', (req, res) => {
+  const ua = req.headers['user-agent'] || '(пусто)';
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>UA</title></head><body><h2>User-Agent:</h2><p style="word-break:break-all;font-size:14px">${ua}</p><hr/><p>isPDA: <b>${req.isPDA}</b></p></body></html>`);
 });
 
 // ── AUTH ─────────────────────────────────────────────
