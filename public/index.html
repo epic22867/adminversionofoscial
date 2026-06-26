@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>СоцСеть</title>
+  <title>Aero Socialite</title>
+  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/public/icon.png"/>
   <style>
     :root {
       --bg: #e7e9ec;
@@ -214,6 +215,21 @@
     .empty { text-align:center; padding:30px; color:var(--text2); background:var(--card); border-radius:4px; border:1px solid var(--border); }
     #toast { position:fixed; bottom:20px; right:20px; background:#2ecc71; color:white; padding:10px 16px; border-radius:4px; font-size:13px; display:none; z-index:9999; }
 
+    /* ── NOTIFICATIONS ────────────────────────────── */
+    .notif-item { display:flex; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); align-items:flex-start; cursor:pointer; border-radius:4px; transition:background .1s; }
+    .notif-item:last-child { border-bottom:none; }
+    .notif-item:hover { background:var(--side-link); }
+    .notif-item.unread { background:rgba(74,118,168,0.07); }
+    .notif-item.unread:hover { background:rgba(74,118,168,0.13); }
+    .notif-avatar { width:36px; height:36px; border-radius:4px; background:#4a76a8; display:flex; align-items:center; justify-content:center; color:white; font-weight:bold; font-size:13px; overflow:hidden; flex-shrink:0; }
+    .notif-avatar img { width:100%; height:100%; object-fit:cover; }
+    .notif-body { flex:1; font-size:13px; }
+    .notif-text { color:var(--text); line-height:1.4; }
+    .notif-text b { color:var(--text3); }
+    .notif-time { font-size:11px; color:var(--text2); margin-top:2px; }
+    .notif-dot { width:8px; height:8px; border-radius:50%; background:#4a76a8; flex-shrink:0; margin-top:6px; }
+    .notif-empty { text-align:center; padding:30px; color:var(--text2); font-size:13px; }
+
     /* ── ATTACHMENTS ──────────────────────────────── */
     .attach-btn { display:inline-flex; align-items:center; gap:5px; padding:5px 10px; border-radius:3px; border:1px dashed var(--input-border); background:none; color:var(--text2); font-size:12px; cursor:pointer; margin-right:8px; }
     .attach-btn:hover { border-color:#4a76a8; color:#4a76a8; }
@@ -290,7 +306,10 @@
 
 <div id="auth-overlay">
   <div id="auth-box">
-    <h2 id="auth-title">Вход в СоцСеть</h2>
+    <div style="text-align:center;margin-bottom:14px;">
+      <img src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/public/icon.png" alt="Aero Socialite" style="width:64px;height:64px;border-radius:12px;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.15);"/>
+    </div>
+    <h2 id="auth-title">Вход в Aero Socialite</h2>
     <div class="auth-err" id="auth-err"></div>
     <input id="auth-user" placeholder="Имя пользователя"/>
     <input id="auth-pass" type="password" placeholder="Пароль"/>
@@ -303,11 +322,17 @@
 </div>
 
 <div id="header">
-  <div class="logo">ВС</div>
+  <div class="logo" style="display:flex;align-items:center;gap:7px;">
+    <img src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/public/icon.png" alt="icon" style="width:28px;height:28px;border-radius:4px;object-fit:cover;flex-shrink:0;"/>
+    Aero Socialite
+  </div>
   <div class="search-wrap"><input placeholder="Поиск"/></div>
   <nav>
     <button id="tab-btn-news" class="active" onclick="setTab('news')">Новости</button>
     <button id="tab-btn-my" onclick="setTab('my')">Мои записи</button>
+    <button id="tab-btn-notifications" onclick="setTab('notifications')" style="position:relative">
+      🔔 <span id="notif-badge" style="display:none;position:absolute;top:2px;right:2px;background:#e74c3c;color:white;border-radius:50%;width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;font-weight:bold"></span>
+    </button>
     <button id="tab-btn-profile" onclick="setTab('profile')">Профиль</button>
     <button id="tab-btn-settings" onclick="setTab('settings')">Настройки</button>
   </nav>
@@ -326,6 +351,7 @@
       <div class="side-header">Меню</div>
       <a id="sl-news" class="active" onclick="setTab('news')">📰 Новости</a>
       <a id="sl-my" onclick="setTab('my')">✏️ Мои записи</a>
+      <a id="sl-notifications" onclick="setTab('notifications')">🔔 Уведомления <span id="sb-notif-count" style="display:none;background:#e74c3c;color:white;border-radius:10px;padding:0 5px;font-size:11px;margin-left:4px"></span></a>
       <a id="sl-profile" onclick="setTab('profile')">👤 Мой профиль</a>
       <a id="sl-settings" onclick="setTab('settings')">⚙️ Настройки</a>
     </div>
@@ -407,6 +433,16 @@
         </div>
       </div>
     </div>
+
+    <div id="notifications-panel" style="display:none">
+      <div class="settings-block">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <h3 style="margin:0">🔔 Уведомления</h3>
+          <button class="btn btn-gray btn-sm" onclick="markAllRead()">Отметить все как прочитанные</button>
+        </div>
+        <div id="notifications-list"><div style="color:var(--text2);text-align:center;padding:20px">Загрузка...</div></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -456,7 +492,7 @@
   // ── AUTH ──────────────────────────────────────────
   function toggleAuth() {
     authMode = authMode === 'login' ? 'register' : 'login';
-    document.getElementById('auth-title').textContent = authMode === 'login' ? 'Вход в СоцСеть' : 'Регистрация';
+    document.getElementById('auth-title').textContent = authMode === 'login' ? 'Вход в Aero Socialite' : 'Регистрация';
     document.querySelector('#auth-box button').textContent = authMode === 'login' ? 'Войти' : 'Зарегистрироваться';
     document.getElementById('auth-switch-text').textContent = authMode === 'login' ? 'Нет аккаунта?' : 'Уже есть аккаунт?';
     document.querySelector('.auth-switch a').textContent = authMode === 'login' ? 'Зарегистрироваться' : 'Войти';
@@ -496,6 +532,8 @@
     if (bioInput) bioInput.value = me.bio || '';
     renderAvatar(document.getElementById('settings-av-preview'), me);
     loadPosts();
+    updateNotifBadge();
+    setInterval(updateNotifBadge, 30000);
   }
 
   async function logout() {
@@ -508,7 +546,7 @@
   // ── TABS ──────────────────────────────────────────
   function setTab(tab) {
     currentTab = tab;
-    ['news','my','settings','profile'].forEach(t => {
+    ['news','my','settings','profile','notifications'].forEach(t => {
       const btn = document.getElementById('tab-btn-' + t);
       const sl = document.getElementById('sl-' + t);
       if (btn) btn.classList.toggle('active', t === tab);
@@ -518,17 +556,19 @@
       const fb = document.getElementById('ftab-' + t);
       if (fb) fb.classList.toggle('active', t === tab);
     });
-    const isContent = tab !== 'settings' && tab !== 'profile';
+    const isContent = tab !== 'settings' && tab !== 'profile' && tab !== 'notifications';
     document.getElementById('write-block').style.display = isContent ? 'block' : 'none';
     document.getElementById('posts-list').style.display = isContent ? 'block' : 'none';
     document.querySelector('.feed-tabs').style.display = isContent ? 'flex' : 'none';
     document.getElementById('settings-panel').style.display = tab === 'settings' ? 'block' : 'none';
     document.getElementById('profile-panel').style.display = tab === 'profile' ? 'block' : 'none';
+    document.getElementById('notifications-panel').style.display = tab === 'notifications' ? 'block' : 'none';
     if (tab === 'settings' && me) {
       document.getElementById('bio-input').value = me.bio || '';
       renderAvatar(document.getElementById('settings-av-preview'), me);
     }
     if (tab === 'profile') loadProfile(null);
+    if (tab === 'notifications') loadNotifications();
     if (isContent) loadPosts();
   }
 
@@ -911,6 +951,81 @@
     await loadComments(postId);
   }
 
+  // ── NOTIFICATIONS ─────────────────────────────────
+  const notifAudio = new Audio('https://raw.githubusercontent.com/epic22867/adminversionofoscial/main/public/message_2.mp3');
+  let prevNotifCount = 0;
+
+  async function updateNotifBadge() {
+    if (!me) return;
+    const data = await api('GET', '/api/notifications/unread-count');
+    const count = data.count || 0;
+    const badge = document.getElementById('notif-badge');
+    const sbCount = document.getElementById('sb-notif-count');
+    if (count > 0) {
+      badge.textContent = count > 9 ? '9+' : count;
+      badge.style.display = 'block';
+      sbCount.textContent = count;
+      sbCount.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
+      sbCount.style.display = 'none';
+    }
+    // Play sound when new notifications arrive
+    if (count > prevNotifCount) {
+      notifAudio.currentTime = 0;
+      notifAudio.play().catch(() => {}); // ignore autoplay policy errors
+    }
+    prevNotifCount = count;
+  }
+
+  async function loadNotifications() {
+    const list = document.getElementById('notifications-list');
+    list.innerHTML = '<div style="color:var(--text2);text-align:center;padding:20px">Загрузка...</div>';
+    const notifs = await api('GET', '/api/notifications');
+    if (!notifs.length) {
+      list.innerHTML = '<div class="notif-empty">У вас пока нет уведомлений 🔔</div>';
+      return;
+    }
+    list.innerHTML = notifs.map(n => {
+      const avatarHtml = n.actor_avatar
+        ? `<img src="${n.actor_avatar}" alt="${n.actor_username}"/>`
+        : n.actor_username[0].toUpperCase();
+      const timeStr = new Date(n.created_at).toLocaleString('ru', {day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'});
+      let text = '';
+      if (n.type === 'like') {
+        text = `<b>${n.actor_username}</b> оценил(а) вашу запись${n.post_title ? ': «' + n.post_title.trim() + '»' : ''}`;
+      } else if (n.type === 'comment') {
+        text = `<b>${n.actor_username}</b> прокомментировал(а) вашу запись${n.post_title ? ': «' + n.post_title.trim() + '»' : ''}`;
+      }
+      return `<div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="onNotifClick(${n.id},${n.post_id})">
+        <div class="notif-avatar">${avatarHtml}</div>
+        <div class="notif-body">
+          <div class="notif-text">${n.type === 'like' ? '👍 ' : '💬 '}${text}</div>
+          <div class="notif-time">${timeStr}</div>
+        </div>
+        ${!n.is_read ? '<div class="notif-dot"></div>' : '<div style="width:8px"></div>'}
+      </div>`;
+    }).join('');
+    // Mark all as read after viewing
+    await api('POST', '/api/notifications/read-all');
+    updateNotifBadge();
+  }
+
+  async function markAllRead() {
+    await api('POST', '/api/notifications/read-all');
+    updateNotifBadge();
+    loadNotifications();
+  }
+
+  function onNotifClick(notifId, postId) {
+    // Navigate to news tab and scroll to post if possible
+    setTab('news');
+    setTimeout(() => {
+      const el = document.getElementById('post-' + postId);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 400);
+  }
+
   // ── PROFILE & SETTINGS ────────────────────────────
   async function uploadAvatar(input) {
     if (!input.files.length) return;
@@ -960,7 +1075,7 @@
   async function openUserProfile(userId) {
     // Switch to profile tab, then load that user's data
     currentTab = 'profile';
-    ['news','my','settings','profile'].forEach(t => {
+    ['news','my','settings','profile','notifications'].forEach(t => {
       const btn = document.getElementById('tab-btn-' + t);
       const sl = document.getElementById('sl-' + t);
       if (btn) btn.classList.toggle('active', t === 'profile');
@@ -974,6 +1089,7 @@
     document.getElementById('posts-list').style.display = 'none';
     document.querySelector('.feed-tabs').style.display = 'none';
     document.getElementById('settings-panel').style.display = 'none';
+    document.getElementById('notifications-panel').style.display = 'none';
     document.getElementById('profile-panel').style.display = 'block';
     await loadProfile(userId);
   }
