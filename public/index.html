@@ -253,52 +253,172 @@
 
     /* ── MOBILE ───────────────────────────────────── */
     @media (max-width: 768px) {
-      #header { padding:0 10px; gap:8px; height:48px; }
-      #header .logo { font-size:18px; }
-      #header .search-wrap { display:none; }
-      #header nav { gap:0; margin-left:0; }
-      #header nav button { padding:6px 8px; font-size:12px; }
+      /* Base */
+      body { font-size:14px; -webkit-text-size-adjust:100%; }
+
+      /* Header: slimmer, no nav (moved to bottom bar) */
+      #header { padding:0 12px; gap:8px; height:50px; position:sticky; top:0; }
+      #header .logo { font-size:17px; }
+      #header .search-wrap { flex:1; display:block; max-width:none; }
+      #header .search-wrap input { font-size:14px; padding:7px 12px; border-radius:20px; }
+      #header nav { display:none; }
       #header .user-name { display:none; }
+      #header .btn { display:none; }
 
-      #layout { flex-direction:column; margin:10px auto; padding:0 8px; gap:8px; }
-      #sidebar { width:100%; display:flex; flex-direction:column; }
-      .profile-mini { display:flex; align-items:center; gap:10px; text-align:left; padding:10px; }
-      .profile-mini .avatar { width:44px; height:44px; font-size:18px; margin:0; }
-      .side-block { display:none; }
+      /* Bottom nav bar */
+      #bottom-nav {
+        display:flex;
+        position:fixed;
+        bottom:0; left:0; right:0;
+        background:var(--card);
+        border-top:1px solid var(--border);
+        z-index:200;
+        padding-bottom:env(safe-area-inset-bottom, 0);
+        box-shadow:0 -2px 8px rgba(0,0,0,0.08);
+      }
+      #bottom-nav button {
+        flex:1;
+        background:none;
+        border:none;
+        padding:8px 0 6px;
+        font-size:10px;
+        color:var(--text2);
+        cursor:pointer;
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        gap:2px;
+        position:relative;
+        -webkit-tap-highlight-color:transparent;
+        transition:color .15s;
+      }
+      #bottom-nav button .bn-icon { font-size:22px; line-height:1; }
+      #bottom-nav button .bn-label { font-size:10px; }
+      #bottom-nav button.active { color:#4a76a8; }
+      #bottom-nav button.active .bn-label { font-weight:bold; }
+      #bottom-nav .bn-badge {
+        position:absolute;
+        top:4px; right:calc(50% - 16px);
+        background:#e74c3c;
+        color:white;
+        border-radius:10px;
+        min-width:16px;
+        height:16px;
+        font-size:10px;
+        line-height:16px;
+        text-align:center;
+        font-weight:bold;
+        padding:0 3px;
+      }
 
-      .post-top { padding:10px 10px 6px; }
-      .post-body { padding:4px 10px 10px; }
-      .post-footer { padding:6px 10px; flex-wrap:wrap; gap:8px; }
-      .post-action { padding:6px 10px; font-size:13px; }
-      .del-btn { padding:6px 8px; }
+      /* Layout: single column, no sidebar, bottom nav padding */
+      #layout { flex-direction:column; margin:10px auto; padding:0; gap:0; }
+      #layout { padding-bottom:calc(56px + env(safe-area-inset-bottom, 0)); }
+      #sidebar { display:none; }
+      #main-feed { padding:0 10px; }
 
-      .write-block, .feed-tabs, .settings-block { margin-bottom:8px; }
-      .feed-tabs button { padding:11px; font-size:13px; }
+      /* Write block */
+      .write-block { border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+      .write-block input[type=text] { font-size:15px; padding:8px 10px; }
+      .write-block textarea { font-size:14px; min-height:72px; padding:8px 10px; margin-top:6px; }
+      .write-footer { margin-top:8px; gap:8px; }
+      .attach-btn { padding:8px 12px; font-size:13px; border-radius:20px; }
 
-      .comment-form input, .comment-form button { padding:8px 10px; }
+      /* Feed tabs */
+      .feed-tabs { border-radius:8px; margin-bottom:8px; }
+      .feed-tabs button { padding:12px; font-size:14px; }
 
-      .theme-options { flex-direction:column; }
-      .theme-btn { padding:14px 10px; }
+      /* Post cards */
+      .post-card { border-radius:8px; margin-bottom:8px; }
+      .post-top { padding:12px 12px 6px; gap:10px; }
+      .post-avatar { width:40px; height:40px; font-size:15px; border-radius:6px; }
+      .post-meta .post-author { font-size:14px; }
+      .post-meta .post-time { font-size:12px; }
+      .post-body { padding:4px 12px 12px; font-size:14px; line-height:1.55; }
+      .post-title-text { font-size:15px; margin-bottom:5px; }
+      .post-footer { padding:8px 12px; gap:0; justify-content:space-between; }
+      .post-action { padding:8px 0; font-size:13px; flex:1; justify-content:center; border-radius:6px; }
+      .del-btn { padding:8px 8px; font-size:12px; }
 
-      #auth-box { width:90%; max-width:340px; padding:20px; }
+      /* Full-width images in posts */
+      .post-attachments { flex-direction:column; gap:6px; }
+      .post-attachments img,
+      .post-attachments video { max-width:100%; max-height:none; width:100%; height:auto; border-radius:6px; }
+      .post-attachments audio { width:100%; }
 
-      #toast { left:10px; right:10px; bottom:10px; text-align:center; }
+      /* Comments */
+      .comments-section { padding:10px 12px; }
+      .comment-item { gap:8px; margin-bottom:10px; }
+      .comment-avatar { width:32px; height:32px; font-size:12px; border-radius:5px; }
+      .comment-body { padding:8px 10px; border-radius:8px; }
+      .comment-author { font-size:13px; }
+      .comment-text { font-size:14px; margin-top:3px; }
+      .comment-form { gap:8px; margin-top:10px; }
+      .comment-form input { font-size:14px; padding:10px 12px; border-radius:20px; }
+      .comment-form .btn { padding:10px 14px; border-radius:20px; font-size:13px; }
+      .comment-form .attach-btn { padding:10px; border-radius:50%; aspect-ratio:1; }
+      .comment-attachments img,
+      .comment-attachments video { max-width:100%; border-radius:6px; }
+      .comment-attachments audio { width:100%; }
+
+      /* Profile */
+      .profile-page { border-radius:8px; }
+      .profile-cover { height:100px; }
+      .profile-info { padding:0 14px 14px; gap:12px; }
+      .profile-big-av { width:68px; height:68px; font-size:26px; margin-top:-34px; }
+      .profile-details h2 { font-size:17px; }
+      .profile-bio-text { font-size:14px; }
+
+      /* Settings */
+      .settings-block { border-radius:8px; padding:14px; }
+      .settings-block h3 { font-size:15px; }
+      .theme-options { flex-direction:row; gap:8px; }
+      .theme-btn { padding:16px 8px; font-size:12px; flex:1; }
+      .theme-btn .theme-icon { font-size:22px; }
+      .bio-input { font-size:14px; padding:10px; }
+
+      /* Notifications */
+      .settings-block .notif-item { padding:10px 4px; gap:10px; }
+      .notif-avatar { width:40px; height:40px; font-size:14px; border-radius:6px; }
+      .notif-text { font-size:14px; }
+      .notif-time { font-size:12px; margin-top:3px; }
+
+      /* Auth */
+      #auth-overlay { padding:16px; }
+      #auth-box { width:100%; max-width:360px; padding:24px 20px; border-radius:12px; }
+      #auth-box h2 { font-size:20px; }
+      #auth-box input { padding:12px; font-size:15px; border-radius:6px; margin-bottom:12px; }
+      #auth-box button { padding:12px; font-size:15px; border-radius:6px; }
+
+      /* Toast */
+      #toast { left:10px; right:10px; bottom:calc(66px + env(safe-area-inset-bottom, 0)); text-align:center; border-radius:8px; font-size:14px; }
+
+      /* Lightbox */
+      #lightbox img { max-width:98vw; max-height:88vh; }
+      #lightbox video { max-width:98vw; max-height:88vh; }
+
+      /* Attachment previews */
+      .attach-preview { gap:8px; }
+      .attach-thumb img, .attach-thumb video { max-width:100px; max-height:80px; }
     }
 
     @media (max-width: 480px) {
-      body { font-size:14px; }
-      #header .logo { font-size:16px; }
-      #header nav button { padding:6px 6px; font-size:11px; }
-      .post-avatar { width:34px; height:34px; font-size:12px; }
-      .comment-avatar { width:24px; height:24px; }
+      #main-feed { padding:0 8px; }
+      .post-footer { gap:0; }
+      .post-action { font-size:12px; }
       .write-block textarea { min-height:60px; }
     }
 
     /* увеличиваем тап-зоны на тач-устройствах */
     @media (hover: none) and (pointer: coarse) {
       .post-action, .del-btn, .comment-del, .btn, .side-block a, .feed-tabs button {
-        min-height:38px;
+        min-height:44px;
       }
+    }
+
+    /* Hide bottom nav on desktop */
+    @media (min-width: 769px) {
+      #bottom-nav { display:none; }
     }
   </style>
 </head>
@@ -449,6 +569,31 @@
 <div id="lightbox" onclick="closeLightbox()"><img id="lb-img" src="" style="display:none"/><video id="lb-video" controls style="display:none"></video></div>
 <div id="toast"></div>
 
+<!-- Mobile bottom navigation -->
+<nav id="bottom-nav">
+  <button id="bn-news" class="active" onclick="setTab('news')">
+    <span class="bn-icon">📰</span>
+    <span class="bn-label">Новости</span>
+  </button>
+  <button id="bn-my" onclick="setTab('my')">
+    <span class="bn-icon">✏️</span>
+    <span class="bn-label">Мои</span>
+  </button>
+  <button id="bn-notifications" onclick="setTab('notifications')">
+    <span class="bn-icon">🔔</span>
+    <span class="bn-label">Уведомления</span>
+    <span class="bn-badge" id="bn-notif-badge" style="display:none"></span>
+  </button>
+  <button id="bn-profile" onclick="setTab('profile')">
+    <span class="bn-icon">👤</span>
+    <span class="bn-label">Профиль</span>
+  </button>
+  <button id="bn-settings" onclick="setTab('settings')">
+    <span class="bn-icon">⚙️</span>
+    <span class="bn-label">Настройки</span>
+  </button>
+</nav>
+
 <script>
   let authMode = 'login';
   let currentTab = 'news';
@@ -549,8 +694,10 @@
     ['news','my','settings','profile','notifications'].forEach(t => {
       const btn = document.getElementById('tab-btn-' + t);
       const sl = document.getElementById('sl-' + t);
+      const bn = document.getElementById('bn-' + t);
       if (btn) btn.classList.toggle('active', t === tab);
       if (sl) sl.classList.toggle('active', t === tab);
+      if (bn) bn.classList.toggle('active', t === tab);
     });
     ['news','my'].forEach(t => {
       const fb = document.getElementById('ftab-' + t);
@@ -961,19 +1108,21 @@
     const count = data.count || 0;
     const badge = document.getElementById('notif-badge');
     const sbCount = document.getElementById('sb-notif-count');
+    const bnBadge = document.getElementById('bn-notif-badge');
     if (count > 0) {
-      badge.textContent = count > 9 ? '9+' : count;
-      badge.style.display = 'block';
-      sbCount.textContent = count;
-      sbCount.style.display = 'inline';
+      const label = count > 9 ? '9+' : count;
+      if (badge) { badge.textContent = label; badge.style.display = 'block'; }
+      if (sbCount) { sbCount.textContent = count; sbCount.style.display = 'inline'; }
+      if (bnBadge) { bnBadge.textContent = label; bnBadge.style.display = 'block'; }
     } else {
-      badge.style.display = 'none';
-      sbCount.style.display = 'none';
+      if (badge) badge.style.display = 'none';
+      if (sbCount) sbCount.style.display = 'none';
+      if (bnBadge) bnBadge.style.display = 'none';
     }
     // Play sound when new notifications arrive
     if (count > prevNotifCount) {
       notifAudio.currentTime = 0;
-      notifAudio.play().catch(() => {}); // ignore autoplay policy errors
+      notifAudio.play().catch(() => {});
     }
     prevNotifCount = count;
   }
@@ -1073,13 +1222,14 @@
   }
 
   async function openUserProfile(userId) {
-    // Switch to profile tab, then load that user's data
     currentTab = 'profile';
     ['news','my','settings','profile','notifications'].forEach(t => {
       const btn = document.getElementById('tab-btn-' + t);
       const sl = document.getElementById('sl-' + t);
+      const bn = document.getElementById('bn-' + t);
       if (btn) btn.classList.toggle('active', t === 'profile');
       if (sl) sl.classList.toggle('active', t === 'profile');
+      if (bn) bn.classList.toggle('active', t === 'profile');
     });
     ['news','my'].forEach(t => {
       const fb = document.getElementById('ftab-' + t);
