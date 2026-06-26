@@ -39,6 +39,50 @@
       --comment-bg: #2a2a2a;
       --like-active: #e74c3c;
     }
+    body.summer {
+      --bg: #f5edd6;
+      --card: #fffdf5;
+      --border: #e0d0a8;
+      --text: #3a2e1a;
+      --text2: #8a7a5a;
+      --text3: #7a5c1e;
+      --header: #c8a84b;
+      --header2: #b8922e;
+      --header-text: #fffdf0;
+      --header-muted: #f5e8c0;
+      --input-bg: #fffdf5;
+      --input-border: #d4c08a;
+      --side-link: #f0e6c8;
+      --comment-bg: #f0e6c8;
+      --like-active: #e74c3c;
+    }
+    /* Summer header: glossy gradient Sandy Yellow → Faded Leaf → Sandy Yellow */
+    body.summer #header {
+      background: linear-gradient(
+        180deg,
+        rgba(255,255,255,0.18) 0%,
+        rgba(255,255,255,0.0) 60%
+      ),
+      linear-gradient(
+        90deg,
+        #d4aa45 0%,
+        #a07830 50%,
+        #d4aa45 100%
+      );
+      box-shadow: 0 2px 8px rgba(160,120,48,0.25), inset 0 1px 0 rgba(255,255,255,0.35);
+    }
+    body.summer #header .search-wrap input { background: rgba(160,120,48,0.25); }
+    body.summer #header nav button:hover,
+    body.summer #header nav button.active { background: rgba(0,0,0,0.15); }
+    /* Summer sidebar */
+    body.summer .side-block .side-header {
+      background: linear-gradient(90deg, #c8a030 0%, #a07828 100%);
+    }
+    body.summer .profile-mini .avatar { background: #c8a030; }
+    body.summer .side-block a { color: #7a5c1e; }
+    body.summer .side-block a:hover,
+    body.summer .side-block a.active { background: #e8d8a8; }
+
     * { margin:0; padding:0; box-sizing:border-box; }
     body { font-family:Arial,sans-serif; background:var(--bg); font-size:13px; color:var(--text); transition:background .2s,color .2s; }
 
@@ -341,6 +385,10 @@
               <span class="theme-icon">🌙</span>
               Тёмная
             </div>
+            <div class="theme-btn" id="theme-summer" onclick="setTheme('summer')">
+              <span class="theme-icon">🌾</span>
+              Летняя
+            </div>
           </div>
         </div>
       </div>
@@ -370,6 +418,12 @@
   let currentTab = 'news';
   let me = null;
   let postPendingAttachments = []; // [{url,name,mime}]
+  let amAdmin = false;
+
+  async function checkAdmin() {
+    const r = await api('GET', '/api/is-admin');
+    amAdmin = r && r.admin;
+  }
 
   async function api(method, url, body) {
     const r = await fetch(url, {
@@ -390,9 +444,12 @@
 
   // ── THEME ─────────────────────────────────────────
   function setTheme(theme) {
-    document.body.classList.toggle('dark', theme === 'dark');
+    document.body.classList.remove('dark', 'summer');
+    if (theme === 'dark') document.body.classList.add('dark');
+    if (theme === 'summer') document.body.classList.add('summer');
     document.getElementById('theme-light').classList.toggle('selected', theme === 'light');
     document.getElementById('theme-dark').classList.toggle('selected', theme === 'dark');
+    document.getElementById('theme-summer').classList.toggle('selected', theme === 'summer');
     localStorage.setItem('theme', theme);
   }
 
@@ -433,6 +490,7 @@
     document.getElementById('sb-name').textContent = me.username;
     document.getElementById('sb-bio').textContent = me.bio || 'участник';
     renderAvatar(document.getElementById('sb-avatar'), me);
+    await checkAdmin();
     // Populate settings
     const bioInput = document.getElementById('bio-input');
     if (bioInput) bioInput.value = me.bio || '';
@@ -578,7 +636,8 @@
     const liked = parseInt(p.user_liked) > 0;
     const likes = parseInt(p.likes_count) || 0;
     const cmts = parseInt(p.comments_count) || 0;
-    const canDel = me && p.user_id === me.id;
+    const canDel = me && (p.user_id === me.id || amAdmin);
+    const canEdit = me && (p.user_id === me.id || amAdmin);
     const atts = Array.isArray(p.attachments) ? p.attachments : (p.attachments ? JSON.parse(p.attachments) : []);
     return `<div class="post-card" id="post-${p.id}">
       <div class="post-top">
@@ -588,10 +647,22 @@
           <div class="post-time">${date}</div>
         </div>
       </div>
-      <div class="post-body">
-        ${p.title ? `<div class="post-title-text">${p.title}</div>` : ''}
-        <div>${p.content || ''}</div>
-        ${renderAttachments(atts, 'post-attachments')}
+      <div class="post-body" id="post-body-${p.id}">
+        ${p.title ? `<div class="post-title-text" id="post-title-${p.id}">${p.title}</div>` : ''}
+        <div id="post-content-${p.id}">${p.content || ''}</div>
+        <div id="post-atts-${p.id}">${renderAttachments(atts, 'post-attachments')}</div>
+      </div>
+      <div id="post-edit-form-${p.id}" style="display:none; padding:8px 12px; border-top:1px solid var(--border)">
+        <input type="text" id="edit-title-${p.id}" style="width:100%;padding:6px 8px;border:1px solid var(--input-border);border-radius:3px;font-size:13px;margin-bottom:6px;background:var(--input-bg);color:var(--text)" placeholder="Заголовок"/>
+        <textarea id="edit-content-${p.id}" style="width:100%;padding:6px 8px;border:1px solid var(--input-border);border-radius:3px;font-size:13px;min-height:60px;resize:vertical;font-family:Arial,sans-serif;background:var(--input-bg);color:var(--text)" placeholder="Текст"></textarea>
+        <div id="edit-cur-atts-${p.id}" style="margin:6px 0;display:flex;flex-wrap:wrap;gap:6px"></div>
+        <div id="edit-new-preview-${p.id}" class="attach-preview"></div>
+        <input type="file" id="edit-file-${p.id}" multiple accept=".gif,.png,.jpg,.jpeg,.webp,.mp4,.ogg,.mp3" style="display:none" onchange="handleEditFiles(${p.id},this)"/>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+          <button class="attach-btn" onclick="document.getElementById('edit-file-${p.id}').click()">📎 Добавить файл</button>
+          <button class="btn btn-blue btn-sm" onclick="savePostEdit(${p.id})">💾 Сохранить</button>
+          <button class="btn btn-gray btn-sm" onclick="cancelPostEdit(${p.id})">Отмена</button>
+        </div>
       </div>
       <div class="post-footer">
         <button class="post-action ${liked ? 'liked' : ''}" onclick="toggleLike(${p.id}, this)">
@@ -600,6 +671,7 @@
         <button class="post-action" onclick="toggleComments(${p.id})">
           💬 Комментарии${cmts > 0 ? ' · ' + cmts : ''}
         </button>
+        ${canEdit ? `<button class="del-btn" style="color:var(--text3)" onclick="startPostEdit(${p.id})">✏️ Изменить</button>` : ''}
         ${canDel ? `<button class="del-btn" onclick="deletePost(${p.id})">✕ Удалить</button>` : ''}
       </div>
       <div class="comments-section" id="cmts-${p.id}">
@@ -633,6 +705,97 @@
     await api('DELETE', `/api/posts/${id}`);
     loadPosts();
     toast('Запись удалена', '#e74c3c');
+  }
+
+  // ── POST EDIT (admin / owner) ──────────────────────
+  const editPendingAttachments = {};
+
+  function startPostEdit(postId) {
+    const titleEl = document.getElementById(`post-title-${postId}`);
+    const contentEl = document.getElementById(`post-content-${postId}`);
+    document.getElementById(`edit-title-${postId}`).value = titleEl ? titleEl.textContent : '';
+    document.getElementById(`edit-content-${postId}`).value = contentEl ? contentEl.textContent : '';
+    editPendingAttachments[postId] = [];
+    // Show current attachments with remove buttons
+    const attsDiv = document.getElementById(`post-atts-${postId}`);
+    const curDiv = document.getElementById(`edit-cur-atts-${postId}`);
+    const imgs = attsDiv.querySelectorAll('img[src], video[src], audio[src]');
+    curDiv.innerHTML = '';
+    attsDiv.querySelectorAll('[data-file-id]').forEach(el => {
+      const fid = el.dataset.fileId;
+      const name = el.dataset.fileName || fid;
+      curDiv.innerHTML += `<div id="edit-cur-file-${fid}" style="display:inline-flex;align-items:center;gap:4px;background:var(--comment-bg);border-radius:3px;padding:3px 8px;font-size:12px">
+        📎 ${name} <button onclick="removeEditCurFile(${postId},${fid})" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:13px;line-height:1">✕</button>
+      </div>`;
+    });
+    // fallback: parse from rendered attachment urls
+    if (!curDiv.innerHTML) {
+      attsDiv.querySelectorAll('img,video,audio').forEach((el, i) => {
+        const src = el.src || el.currentSrc || '';
+        const m = src.match(/\/api\/file\/(\d+)/);
+        if (!m) return;
+        const fid = m[1];
+        curDiv.innerHTML += `<div id="edit-cur-file-${fid}" style="display:inline-flex;align-items:center;gap:4px;background:var(--comment-bg);border-radius:3px;padding:3px 8px;font-size:12px">
+          📎 файл ${fid} <button onclick="removeEditCurFile(${postId},${fid})" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:13px;line-height:1">✕</button>
+        </div>`;
+      });
+    }
+    document.getElementById(`post-edit-form-${postId}`).style.display = 'block';
+    document.getElementById(`post-body-${postId}`).style.display = 'none';
+  }
+
+  function removeEditCurFile(postId, fileId) {
+    const el = document.getElementById(`edit-cur-file-${fileId}`);
+    if (el) el.remove();
+    if (!editPendingAttachments[postId]) editPendingAttachments[postId] = [];
+    editPendingAttachments[postId]._removeIds = editPendingAttachments[postId]._removeIds || [];
+    editPendingAttachments[postId]._removeIds.push(fileId);
+  }
+
+  async function handleEditFiles(postId, input) {
+    if (!input.files.length) return;
+    const uploaded = await uploadFiles(input.files);
+    if (!editPendingAttachments[postId]) editPendingAttachments[postId] = [];
+    editPendingAttachments[postId].push(...uploaded);
+    renderEditPreview(postId);
+    input.value = '';
+  }
+
+  function renderEditPreview(postId) {
+    const container = document.getElementById(`edit-new-preview-${postId}`);
+    if (!container) return;
+    const atts = (editPendingAttachments[postId] || []).filter(a => a && a.url);
+    container.innerHTML = atts.map((a, i) => {
+      const name = a.name || a.url.split('/').pop();
+      let media = '';
+      if (a.mime && a.mime.startsWith('image/')) media = `<img src="${a.url}" alt="${name}"/>`;
+      else if (a.mime && a.mime.startsWith('video/')) media = `<video src="${a.url}" muted></video>`;
+      return `<div class="attach-thumb">${media}<div class="attach-file-name">📎 ${name}</div>
+        <button class="rm-attach" onclick="removeEditNewFile(${postId},${i})">✕</button></div>`;
+    }).join('');
+  }
+
+  function removeEditNewFile(postId, idx) {
+    if (editPendingAttachments[postId]) editPendingAttachments[postId].splice(idx, 1);
+    renderEditPreview(postId);
+  }
+
+  async function savePostEdit(postId) {
+    const title = document.getElementById(`edit-title-${postId}`).value.trim();
+    const content = document.getElementById(`edit-content-${postId}`).value.trim();
+    const pending = editPendingAttachments[postId] || [];
+    const removeFileIds = pending._removeIds || [];
+    const addAttachments = pending.filter(a => a && a.id);
+    await api('PUT', `/api/posts/${postId}`, { title, content, addAttachments, removeFileIds });
+    toast('Пост обновлён!');
+    cancelPostEdit(postId);
+    loadPosts();
+  }
+
+  function cancelPostEdit(postId) {
+    document.getElementById(`post-edit-form-${postId}`).style.display = 'none';
+    document.getElementById(`post-body-${postId}`).style.display = 'block';
+    editPendingAttachments[postId] = [];
   }
 
   // ── LIKES ─────────────────────────────────────────
