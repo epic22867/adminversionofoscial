@@ -4,52 +4,6 @@ const bcrypt = require('bcryptjs');
 const session = require('express-session');
 const path = require('path');
 const multer = require('multer');
-const fs = require('fs');
-
-// ── FILE UPLOAD CONFIG ────────────────────────────────
-const UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
-if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-
-const ALLOWED_MIME = new Set([
-  'image/gif','image/png','image/jpeg','image/webp',
-  'video/mp4',
-  'audio/ogg','audio/mpeg','audio/mp3',
-]);
-
-const AVATAR_MIME = new Set(['image/gif','image/png','image/jpeg','image/webp']);
-const AVATAR_MAX = 5 * 1024 * 1024; // 5 MB
-
-const avatarUpload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, UPLOADS_DIR),
-    filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, `avatar-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
-    },
-  }),
-  limits: { fileSize: AVATAR_MAX },
-  fileFilter: (req, file, cb) => {
-    if (AVATAR_MIME.has(file.mimetype)) cb(null, true);
-    else cb(new Error('Только изображения для аватара'));
-  },
-});
-const MAX_SIZE = 50 * 1024 * 1024; // 50 MB
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
-  },
-});
-const upload = multer({
-  storage,
-  limits: { fileSize: MAX_SIZE },
-  fileFilter: (req, file, cb) => {
-    if (ALLOWED_MIME.has(file.mimetype)) cb(null, true);
-    else cb(new Error('Недопустимый тип файла'));
-  },
-});
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -59,6 +13,34 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
+// Multer — храним файлы в памяти, потом пишем в БД
+const ALLOWED_MIME = new Set([
+  'image/gif','image/png','image/jpeg','image/webp',
+  'video/mp4',
+  'audio/ogg','audio/mpeg','audio/mp3',
+]);
+const AVATAR_MIME = new Set(['image/gif','image/png','image/jpeg','image/webp']);
+
+const memStorage = multer.memoryStorage();
+
+const upload = multer({
+  storage: memStorage,
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_MIME.has(file.mimetype)) cb(null, true);
+    else cb(new Error('Недопустимый тип файла'));
+  },
+});
+
+const avatarUpload = multer({
+  storage: memStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (AVATAR_MIME.has(file.mimetype)) cb(null, true);
+    else cb(new Error('Только изображения для аватара'));
+  },
+});
+
 async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -66,35 +48,56 @@ async function initDB() {
       username VARCHAR(50) UNIQUE NOT NULL,
       password TEXT NOT NULL,
       bio TEXT DEFAULT '',
-      avatar TEXT DEFAULT '',
+      avatar_data BYTEA,
+      avatar_mime TEXT,
       created_at TIMESTAMP DEFAULT NOW()
     );
     ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT '';
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT DEFAULT '';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_data BYTEA;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_mime TEXT;
+
     CREATE TABLE IF NOT EXISTS posts (
       id SERIAL PRIMARY KEY,
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
       content TEXT,
-      attachments JSONB DEFAULT '[]',
       created_at TIMESTAMP DEFAULT NOW()
     );
-    ALTER TABLE posts ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]';
+
+    CREATE TABLE IF NOT EXISTS post_files (
+      id SERIAL PRIMARY KEY,
+      post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
+      name TEXT,
+      mime TEXT,
+      data BYTEA,
+      size INTEGER,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS likes (
       id SERIAL PRIMARY KEY,
       post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       UNIQUE(post_id, user_id)
     );
+
     CREATE TABLE IF NOT EXISTS comments (
       id SERIAL PRIMARY KEY,
       post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       content TEXT NOT NULL,
-      attachments JSONB DEFAULT '[]',
       created_at TIMESTAMP DEFAULT NOW()
     );
-    ALTER TABLE comments ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]';
+
+    CREATE TABLE IF NOT EXISTS comment_files (
+      id SERIAL PRIMARY KEY,
+      comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
+      name TEXT,
+      mime TEXT,
+      data BYTEA,
+      size INTEGER,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
   `);
   console.log('✅ Таблицы готовы');
 }
@@ -115,7 +118,7 @@ function requireAuth(req, res, next) {
 
 app.get('/api/status', (req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
-// Auth
+// ── AUTH ─────────────────────────────────────────────
 app.post('/api/register', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Заполни все поля' });
@@ -148,30 +151,72 @@ app.post('/api/login', async (req, res) => {
 app.post('/api/logout', (req, res) => { req.session.destroy(); res.json({ ok: true }); });
 
 app.get('/api/me', requireAuth, async (req, res) => {
-  const { rows } = await pool.query('SELECT id, username, bio, avatar, created_at FROM users WHERE id = $1', [req.session.userId]);
-  res.json(rows[0]);
+  const { rows } = await pool.query(
+    'SELECT id, username, bio, (avatar_data IS NOT NULL) AS has_avatar, created_at FROM users WHERE id = $1',
+    [req.session.userId]
+  );
+  const u = rows[0];
+  res.json({ ...u, avatar: u.has_avatar ? `/api/avatar/${u.id}` : '' });
 });
 
-// ── FILE UPLOAD ───────────────────────────────────────
-app.post('/api/upload', requireAuth, upload.array('files', 10), (req, res) => {
+// ── AVATAR SERVE ─────────────────────────────────────
+app.get('/api/avatar/:id', async (req, res) => {
+  const { rows } = await pool.query(
+    'SELECT avatar_data, avatar_mime FROM users WHERE id = $1',
+    [req.params.id]
+  );
+  if (!rows[0] || !rows[0].avatar_data) return res.status(404).end();
+  res.set('Content-Type', rows[0].avatar_mime);
+  res.set('Cache-Control', 'public, max-age=31536000');
+  res.send(rows[0].avatar_data);
+});
+
+// ── FILE SERVE ───────────────────────────────────────
+app.get('/api/file/:id', async (req, res) => {
+  // Check post_files first, then comment_files
+  let result = await pool.query('SELECT name, mime, data FROM post_files WHERE id = $1', [req.params.id]);
+  if (!result.rows[0]) {
+    result = await pool.query('SELECT name, mime, data FROM comment_files WHERE id = $1', [req.params.id]);
+  }
+  if (!result.rows[0]) return res.status(404).end();
+  const { name, mime, data } = result.rows[0];
+  res.set('Content-Type', mime);
+  res.set('Content-Disposition', `inline; filename="${encodeURIComponent(name)}"`);
+  res.set('Cache-Control', 'public, max-age=31536000');
+  res.send(data);
+});
+
+// ── UPLOAD ───────────────────────────────────────────
+app.post('/api/upload', requireAuth, upload.array('files', 10), async (req, res) => {
   if (!req.files || !req.files.length) return res.status(400).json({ error: 'Нет файлов' });
-  const files = req.files.map(f => ({
-    url: `/uploads/${f.filename}`,
-    name: f.originalname,
-    mime: f.mimetype,
-    size: f.size,
-  }));
+  // We store them temporarily and return IDs — actual DB insert happens when post/comment is created
+  // Instead: store now as orphan rows in post_files with post_id=NULL, then link on post creation
+  const files = [];
+  for (const f of req.files) {
+    const { rows } = await pool.query(
+      'INSERT INTO post_files (name, mime, data, size) VALUES ($1, $2, $3, $4) RETURNING id',
+      [f.originalname, f.mimetype, f.buffer, f.size]
+    );
+    files.push({
+      id: rows[0].id,
+      url: `/api/file/${rows[0].id}`,
+      name: f.originalname,
+      mime: f.mimetype,
+      size: f.size,
+    });
+  }
   res.json({ files });
 });
 
-// ── PROFILE ───────────────────────────────────────────
+// ── PROFILE ──────────────────────────────────────────
 app.get('/api/profile/:id', async (req, res) => {
   const { rows } = await pool.query(
-    'SELECT id, username, bio, avatar, created_at FROM users WHERE id = $1',
+    'SELECT id, username, bio, (avatar_data IS NOT NULL) AS has_avatar, created_at FROM users WHERE id = $1',
     [req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Пользователь не найден' });
-  res.json(rows[0]);
+  const u = rows[0];
+  res.json({ ...u, avatar: u.has_avatar ? `/api/avatar/${u.id}` : '' });
 });
 
 app.post('/api/profile/bio', requireAuth, async (req, res) => {
@@ -182,38 +227,62 @@ app.post('/api/profile/bio', requireAuth, async (req, res) => {
 
 app.post('/api/profile/avatar', requireAuth, avatarUpload.single('avatar'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не получен' });
-  const url = `/uploads/${req.file.filename}`;
-  // Delete old avatar file if exists
-  const { rows } = await pool.query('SELECT avatar FROM users WHERE id = $1', [req.session.userId]);
-  if (rows[0] && rows[0].avatar) {
-    const oldPath = path.join(__dirname, 'public', rows[0].avatar);
-    if (fs.existsSync(oldPath)) fs.unlink(oldPath, () => {});
-  }
-  await pool.query('UPDATE users SET avatar = $1 WHERE id = $2', [url, req.session.userId]);
-  res.json({ url });
+  await pool.query(
+    'UPDATE users SET avatar_data = $1, avatar_mime = $2 WHERE id = $3',
+    [req.file.buffer, req.file.mimetype, req.session.userId]
+  );
+  res.json({ url: `/api/avatar/${req.session.userId}` });
 });
 
-// Posts
+// ── POSTS ────────────────────────────────────────────
 app.get('/api/posts', async (req, res) => {
   const userId = req.session.userId || 0;
   const { rows } = await pool.query(`
-    SELECT p.*, u.username, u.avatar,
+    SELECT p.id, p.user_id, p.title, p.content, p.created_at,
+      u.username, (u.avatar_data IS NOT NULL) AS has_avatar,
       (SELECT COUNT(*) FROM likes WHERE post_id = p.id) AS likes_count,
       (SELECT COUNT(*) FROM comments WHERE post_id = p.id) AS comments_count,
       (SELECT COUNT(*) FROM likes WHERE post_id = p.id AND user_id = $1) AS user_liked
     FROM posts p JOIN users u ON p.user_id = u.id
     ORDER BY p.created_at DESC
   `, [userId]);
-  res.json(rows);
+
+  // Attach file metadata for each post
+  const postIds = rows.map(r => r.id);
+  let fileRows = [];
+  if (postIds.length) {
+    const fr = await pool.query(
+      'SELECT id, post_id, name, mime, size FROM post_files WHERE post_id = ANY($1)',
+      [postIds]
+    );
+    fileRows = fr.rows;
+  }
+
+  const result = rows.map(p => ({
+    ...p,
+    avatar: p.has_avatar ? `/api/avatar/${p.user_id}` : '',
+    attachments: fileRows
+      .filter(f => f.post_id === p.id)
+      .map(f => ({ id: f.id, url: `/api/file/${f.id}`, name: f.name, mime: f.mime, size: f.size })),
+  }));
+  res.json(result);
 });
 
 app.post('/api/posts', requireAuth, async (req, res) => {
   const { title, content, attachments } = req.body;
   if (!title) return res.status(400).json({ error: 'Нужен заголовок' });
   const { rows } = await pool.query(
-    'INSERT INTO posts (user_id, title, content, attachments) VALUES ($1, $2, $3, $4) RETURNING *',
-    [req.session.userId, title, content, JSON.stringify(attachments || [])]
+    'INSERT INTO posts (user_id, title, content) VALUES ($1, $2, $3) RETURNING *',
+    [req.session.userId, title, content]
   );
+  const postId = rows[0].id;
+  // Link uploaded files to this post
+  if (attachments && attachments.length) {
+    const ids = attachments.map(a => a.id).filter(Boolean);
+    if (ids.length) {
+      await pool.query('UPDATE post_files SET post_id = $1 WHERE id = ANY($2)', [postId, ids]);
+    }
+  }
   res.json(rows[0]);
 });
 
@@ -222,7 +291,7 @@ app.delete('/api/posts/:id', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Likes
+// ── LIKES ────────────────────────────────────────────
 app.post('/api/posts/:id/like', requireAuth, async (req, res) => {
   const postId = req.params.id;
   const userId = req.session.userId;
@@ -236,23 +305,58 @@ app.post('/api/posts/:id/like', requireAuth, async (req, res) => {
   }
 });
 
-// Comments
+// ── COMMENTS ─────────────────────────────────────────
 app.get('/api/posts/:id/comments', async (req, res) => {
   const { rows } = await pool.query(`
-    SELECT c.*, u.username, u.avatar FROM comments c
+    SELECT c.id, c.post_id, c.user_id, c.content, c.created_at,
+      u.username, (u.avatar_data IS NOT NULL) AS has_avatar
+    FROM comments c
     JOIN users u ON c.user_id = u.id
     WHERE c.post_id = $1 ORDER BY c.created_at ASC
   `, [req.params.id]);
-  res.json(rows);
+
+  const commentIds = rows.map(r => r.id);
+  let fileRows = [];
+  if (commentIds.length) {
+    const fr = await pool.query(
+      'SELECT id, comment_id, name, mime, size FROM comment_files WHERE comment_id = ANY($1)',
+      [commentIds]
+    );
+    fileRows = fr.rows;
+  }
+
+  const result = rows.map(c => ({
+    ...c,
+    avatar: c.has_avatar ? `/api/avatar/${c.user_id}` : '',
+    attachments: fileRows
+      .filter(f => f.comment_id === c.id)
+      .map(f => ({ id: f.id, url: `/api/file/${f.id}`, name: f.name, mime: f.mime, size: f.size })),
+  }));
+  res.json(result);
 });
 
 app.post('/api/posts/:id/comments', requireAuth, async (req, res) => {
   const { content, attachments } = req.body;
   if (!content && (!attachments || !attachments.length)) return res.status(400).json({ error: 'Пустой комментарий' });
   const { rows } = await pool.query(
-    'INSERT INTO comments (post_id, user_id, content, attachments) VALUES ($1, $2, $3, $4) RETURNING *',
-    [req.params.id, req.session.userId, content || '', JSON.stringify(attachments || [])]
+    'INSERT INTO comments (post_id, user_id, content) VALUES ($1, $2, $3) RETURNING *',
+    [req.params.id, req.session.userId, content || '']
   );
+  const commentId = rows[0].id;
+  // Move uploaded files from post_files to comment_files
+  if (attachments && attachments.length) {
+    for (const a of attachments) {
+      if (!a.id) continue;
+      const pf = await pool.query('SELECT * FROM post_files WHERE id = $1', [a.id]);
+      if (pf.rows[0]) {
+        await pool.query(
+          'INSERT INTO comment_files (comment_id, name, mime, data, size) VALUES ($1, $2, $3, $4, $5)',
+          [commentId, pf.rows[0].name, pf.rows[0].mime, pf.rows[0].data, pf.rows[0].size]
+        );
+        await pool.query('DELETE FROM post_files WHERE id = $1', [a.id]);
+      }
+    }
+  }
   res.json(rows[0]);
 });
 
