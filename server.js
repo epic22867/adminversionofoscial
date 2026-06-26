@@ -109,6 +109,28 @@ async function initDB() {
       is_read BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMP DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS tracks (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      artist TEXT NOT NULL,
+      audio_data BYTEA NOT NULL,
+      audio_mime TEXT NOT NULL,
+      audio_size INTEGER,
+      cover_data BYTEA,
+      cover_mime TEXT,
+      duration INTEGER,
+      plays INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS track_likes (
+      id SERIAL PRIMARY KEY,
+      track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(track_id, user_id)
+    );
   `);
   console.log('✅ Таблицы готовы');
 }
@@ -486,6 +508,94 @@ app.post('/api/notifications/read-all', requireAuth, async (req, res) => {
 
 app.post('/api/notifications/:id/read', requireAuth, async (req, res) => {
   await pool.query('UPDATE notifications SET is_read=TRUE WHERE id=$1 AND user_id=$2', [req.params.id, req.session.userId]);
+  res.json({ ok: true });
+});
+
+// ── MUSIC ────────────────────────────────────────────
+const AUDIO_MIME = new Set(['audio/mpeg','audio/mp3','audio/ogg','audio/wav','audio/flac','audio/aac','audio/x-m4a']);
+const COVER_MIME = new Set(['image/jpeg','image/png','image/webp','image/gif']);
+
+const trackAudioUpload = multer({
+  storage: memStorage,
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.fieldname === 'audio' && AUDIO_MIME.has(file.mimetype)) cb(null, true);
+    else if (file.fieldname === 'cover' && COVER_MIME.has(file.mimetype)) cb(null, true);
+    else cb(new Error('Недопустимый тип файла'));
+  },
+}).fields([{ name:'audio', maxCount:1 }, { name:'cover', maxCount:1 }]);
+
+app.get('/api/tracks', async (req, res) => {
+  const userId = req.session.userId || 0;
+  const { rows } = await pool.query(`
+    SELECT t.id, t.title, t.artist, t.audio_mime, t.audio_size, t.plays, t.created_at,
+      (t.cover_data IS NOT NULL) AS has_cover,
+      u.username, u.id AS user_id,
+      (SELECT COUNT(*) FROM track_likes WHERE track_id = t.id) AS likes_count,
+      (SELECT COUNT(*) FROM track_likes WHERE track_id = t.id AND user_id = $1) AS user_liked
+    FROM tracks t JOIN users u ON t.user_id = u.id
+    ORDER BY t.created_at DESC
+  `, [userId]);
+  res.json(rows.map(r => ({ ...r, cover: r.has_cover ? `/api/tracks/${r.id}/cover` : null })));
+});
+
+app.post('/api/tracks', requireAuth, (req, res) => {
+  trackAudioUpload(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    const audioFile = req.files && req.files.audio && req.files.audio[0];
+    const coverFile = req.files && req.files.cover && req.files.cover[0];
+    if (!audioFile) return res.status(400).json({ error: 'Аудиофайл обязателен' });
+    const { title, artist } = req.body;
+    if (!title || !artist) return res.status(400).json({ error: 'Укажите название и исполнителя' });
+    const { rows } = await pool.query(
+      `INSERT INTO tracks (user_id, title, artist, audio_data, audio_mime, audio_size, cover_data, cover_mime)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [req.session.userId, title, artist,
+       audioFile.buffer, audioFile.mimetype, audioFile.size,
+       coverFile ? coverFile.buffer : null,
+       coverFile ? coverFile.mimetype : null]
+    );
+    res.json({ id: rows[0].id });
+  });
+});
+
+app.get('/api/tracks/:id/audio', async (req, res) => {
+  const { rows } = await pool.query('SELECT audio_data, audio_mime FROM tracks WHERE id=$1', [req.params.id]);
+  if (!rows[0]) return res.status(404).end();
+  await pool.query('UPDATE tracks SET plays = plays + 1 WHERE id=$1', [req.params.id]);
+  res.set('Content-Type', rows[0].audio_mime);
+  res.set('Accept-Ranges', 'bytes');
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.send(rows[0].audio_data);
+});
+
+app.get('/api/tracks/:id/cover', async (req, res) => {
+  const { rows } = await pool.query('SELECT cover_data, cover_mime FROM tracks WHERE id=$1', [req.params.id]);
+  if (!rows[0] || !rows[0].cover_data) return res.status(404).end();
+  res.set('Content-Type', rows[0].cover_mime);
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.send(rows[0].cover_data);
+});
+
+app.post('/api/tracks/:id/like', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('SELECT id FROM track_likes WHERE track_id=$1 AND user_id=$2', [req.params.id, req.session.userId]);
+  if (rows[0]) {
+    await pool.query('DELETE FROM track_likes WHERE track_id=$1 AND user_id=$2', [req.params.id, req.session.userId]);
+    res.json({ liked: false });
+  } else {
+    await pool.query('INSERT INTO track_likes (track_id, user_id) VALUES ($1,$2)', [req.params.id, req.session.userId]);
+    res.json({ liked: true });
+  }
+});
+
+app.delete('/api/tracks/:id', requireAuth, async (req, res) => {
+  const userId = req.session.userId;
+  const admin = await isAdmin(userId);
+  if (admin) {
+    await pool.query('DELETE FROM tracks WHERE id=$1', [req.params.id]);
+  } else {
+    await pool.query('DELETE FROM tracks WHERE id=$1 AND user_id=$2', [req.params.id, userId]);
+  }
   res.json({ ok: true });
 });
 
