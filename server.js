@@ -55,6 +55,11 @@ async function initDB() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT '';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_data BYTEA;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_mime TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS banner_data BYTEA;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS banner_mime TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS banner_url TEXT DEFAULT '';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS bg_type TEXT DEFAULT 'default';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS bg_value TEXT DEFAULT '';
 
     CREATE TABLE IF NOT EXISTS posts (
       id SERIAL PRIMARY KEY,
@@ -192,11 +197,15 @@ app.post('/api/logout', (req, res) => { req.session.destroy(); res.json({ ok: tr
 
 app.get('/api/me', requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    'SELECT id, username, bio, (avatar_data IS NOT NULL) AS has_avatar, created_at FROM users WHERE id = $1',
+    'SELECT id, username, bio, (avatar_data IS NOT NULL) AS has_avatar, (banner_data IS NOT NULL) AS has_banner, banner_url, bg_type, bg_value, created_at FROM users WHERE id = $1',
     [req.session.userId]
   );
   const u = rows[0];
-  res.json({ ...u, avatar: u.has_avatar ? `/api/avatar/${u.id}` : '' });
+  res.json({
+    ...u,
+    avatar: u.has_avatar ? `/api/avatar/${u.id}` : '',
+    banner: u.has_banner ? `/api/banner/${u.id}` : (u.banner_url || ''),
+  });
 });
 
 // ── AVATAR SERVE ─────────────────────────────────────
@@ -251,12 +260,16 @@ app.post('/api/upload', requireAuth, upload.array('files', 10), async (req, res)
 // ── PROFILE ──────────────────────────────────────────
 app.get('/api/profile/:id', async (req, res) => {
   const { rows } = await pool.query(
-    'SELECT id, username, bio, (avatar_data IS NOT NULL) AS has_avatar, created_at FROM users WHERE id = $1',
+    'SELECT id, username, bio, (avatar_data IS NOT NULL) AS has_avatar, (banner_data IS NOT NULL) AS has_banner, banner_url, bg_type, bg_value, created_at FROM users WHERE id = $1',
     [req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Пользователь не найден' });
   const u = rows[0];
-  res.json({ ...u, avatar: u.has_avatar ? `/api/avatar/${u.id}` : '' });
+  res.json({
+    ...u,
+    avatar: u.has_avatar ? `/api/avatar/${u.id}` : '',
+    banner: u.has_banner ? `/api/banner/${u.id}` : (u.banner_url || ''),
+  });
 });
 
 app.post('/api/profile/bio', requireAuth, async (req, res) => {
@@ -272,6 +285,45 @@ app.post('/api/profile/avatar', requireAuth, avatarUpload.single('avatar'), asyn
     [req.file.buffer, req.file.mimetype, req.session.userId]
   );
   res.json({ url: `/api/avatar/${req.session.userId}` });
+});
+
+// ── BANNER ───────────────────────────────────────────
+app.get('/api/banner/:id', async (req, res) => {
+  const { rows } = await pool.query(
+    'SELECT banner_data, banner_mime FROM users WHERE id = $1',
+    [req.params.id]
+  );
+  if (!rows[0] || !rows[0].banner_data) return res.status(404).end();
+  res.set('Content-Type', rows[0].banner_mime);
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.send(rows[0].banner_data);
+});
+
+app.post('/api/profile/banner', requireAuth, avatarUpload.single('banner'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Файл не получен' });
+  await pool.query(
+    'UPDATE users SET banner_data = $1, banner_mime = $2, banner_url = $3 WHERE id = $4',
+    [req.file.buffer, req.file.mimetype, '', req.session.userId]
+  );
+  res.json({ url: `/api/banner/${req.session.userId}` });
+});
+
+app.post('/api/profile/banner-url', requireAuth, async (req, res) => {
+  const { url } = req.body;
+  await pool.query(
+    'UPDATE users SET banner_url = $1, banner_data = NULL, banner_mime = NULL WHERE id = $2',
+    [url || '', req.session.userId]
+  );
+  res.json({ ok: true, url: url || '' });
+});
+
+app.post('/api/profile/background', requireAuth, async (req, res) => {
+  const { bg_type, bg_value } = req.body;
+  await pool.query(
+    'UPDATE users SET bg_type = $1, bg_value = $2 WHERE id = $3',
+    [bg_type || 'default', bg_value || '', req.session.userId]
+  );
+  res.json({ ok: true });
 });
 
 // ── POSTS ────────────────────────────────────────────
