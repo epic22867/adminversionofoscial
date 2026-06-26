@@ -2,9 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=3.0,user-scalable=yes"/>
-  <meta name="HandheldFriendly" content="true"/>
-  <meta name="MobileOptimized" content="240"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>Aero Socialite</title>
   <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/public/icon.png"/>
   <style>
@@ -100,6 +98,10 @@
     #header nav button { background:none; border:none; color:var(--header-muted); font-size:13px; cursor:pointer; padding:6px 10px; border-radius:4px; }
     #header nav button:hover, #header nav button.active { background:var(--header2); color:var(--header-text); }
     #header .user-name { color:var(--header-text); font-size:13px; }
+
+    /* ICONS */
+    .icon-img { width:14px; height:14px; vertical-align:-2px; object-fit:contain; }
+    .bn-icon .icon-img { width:18px; height:18px; vertical-align:-3px; }
 
     /* LAYOUT */
     #layout { max-width:990px; margin:16px auto; display:flex; gap:10px; padding:0 10px; }
@@ -499,196 +501,6 @@
       .track-card { padding:10px 12px; gap:10px; }
       .track-cover { width:46px; height:46px; }
     }
-
-    /* ══════════════════════════════════════════════
-       КПК-ОПТИМИЗАЦИЯ (экраны 240–320 px)
-       Цели: компактность, без transition/shadow,
-       крупные тап-зоны, минимум рендер-нагрузки
-    ══════════════════════════════════════════════ */
-    /* ══════════════════════════════════════════════
-       КПК: класс выставляется сервером по User-Agent
-    ══════════════════════════════════════════════ */
-/* --- Отключаем все переходы и тени (экономим CPU) --- */
-body.pda *, *::before, *::after { transition: none !important;
-        animation: none !important;
-        box-shadow: none !important;
-        text-shadow: none !important; }
-/* --- Базовый текст --- */
-body.pda { font-size: 12px; }
-/* --- Хедер: максимально компактный --- */
-body.pda #header { height: 36px;
-        padding: 0 6px;
-        gap: 6px;
-        position: sticky;
-        top: 0; }
-body.pda #header .logo { font-size: 13px; letter-spacing: 0; }
-body.pda #header .logo img { width: 20px; height: 20px; }
-body.pda #header .search-wrap { flex: 1; }
-body.pda #header .search-wrap input { font-size: 12px;
-        padding: 4px 7px;
-        border-radius: 3px; }
-/* --- Лейаут: одна колонка, нет боковой панели --- */
-body.pda #layout { margin: 4px auto;
-        padding: 0;
-        gap: 0;
-        flex-direction: column;
-        padding-bottom: calc(48px + env(safe-area-inset-bottom, 0)); }
-body.pda #sidebar { display: none; }
-body.pda #main-feed { padding: 0 4px; }
-/* --- Нижний навбар: уже и меньше --- */
-body.pda #bottom-nav { display: flex; }
-body.pda #bottom-nav button { padding: 5px 0 4px;
-        font-size: 9px;
-        gap: 1px;
-        min-height: 40px; }
-body.pda #bottom-nav button .bn-icon { font-size: 18px; }
-body.pda #bottom-nav button .bn-label { font-size: 9px; }
-body.pda #bottom-nav .bn-badge { min-width: 13px;
-        height: 13px;
-        font-size: 9px;
-        line-height: 13px;
-        top: 2px;
-        right: calc(50% - 13px); }
-/* --- Блок написания поста --- */
-body.pda .write-block { padding: 6px 8px; border-radius: 3px; margin-bottom: 6px; }
-body.pda .write-block input[type=text] { font-size: 12px; padding: 6px 8px; }
-body.pda .write-block textarea { font-size: 12px; min-height: 50px; padding: 6px 8px; margin-top: 4px; }
-body.pda .write-footer { margin-top: 6px; gap: 4px; }
-body.pda .attach-btn { padding: 6px 8px; font-size: 11px; border-radius: 3px; }
-/* --- Табы ленты --- */
-body.pda .feed-tabs { border-radius: 3px; margin-bottom: 6px; }
-body.pda .feed-tabs button { padding: 8px 4px; font-size: 12px; }
-/* --- Карточки постов --- */
-body.pda .post-card { border-radius: 3px; margin-bottom: 6px; }
-body.pda .post-top { padding: 8px 8px 4px; gap: 7px; }
-body.pda .post-avatar { width: 32px; height: 32px; font-size: 12px; border-radius: 3px; }
-body.pda .post-meta .post-author { font-size: 12px; }
-body.pda .post-meta .post-time { font-size: 10px; }
-body.pda .post-body { padding: 3px 8px 8px; font-size: 12px; line-height: 1.4; }
-body.pda .post-title-text { font-size: 13px; margin-bottom: 3px; }
-body.pda .post-footer { padding: 6px 8px; gap: 0; justify-content: space-between; }
-body.pda .post-action { padding: 7px 0; font-size: 11px; flex: 1; justify-content: center; border-radius: 3px; min-height: 36px; }
-body.pda .del-btn { padding: 7px 6px; font-size: 11px; min-height: 36px; }
-/* --- Вложения в постах --- */
-body.pda .post-attachments { flex-direction: column; gap: 4px; }
-body.pda .post-attachments img,
-      .post-attachments video { max-width: 100%; width: 100%; height: auto; border-radius: 3px; }
-body.pda .post-attachments audio { width: 100%; }
-/* --- Комментарии --- */
-body.pda .comments-section { padding: 6px 8px; }
-body.pda .comment-item { gap: 6px; margin-bottom: 7px; }
-body.pda .comment-avatar { width: 26px; height: 26px; font-size: 10px; border-radius: 3px; }
-body.pda .comment-body { padding: 5px 7px; border-radius: 3px; }
-body.pda .comment-author { font-size: 11px; }
-body.pda .comment-text { font-size: 12px; margin-top: 2px; }
-body.pda .comment-form { gap: 5px; margin-top: 7px; }
-body.pda .comment-form input { font-size: 12px; padding: 7px 8px; border-radius: 3px; }
-body.pda .comment-form .btn { padding: 7px 10px; border-radius: 3px; font-size: 12px; min-height: 36px; }
-body.pda .comment-form .attach-btn { padding: 7px; border-radius: 3px; aspect-ratio: 1; }
-body.pda .comment-attachments img,
-      .comment-attachments video { max-width: 100%; border-radius: 3px; }
-body.pda .comment-attachments audio { width: 100%; }
-/* --- Кнопки --- */
-body.pda .btn { padding: 6px 10px; font-size: 12px; min-height: 34px; }
-body.pda .btn-sm { padding: 5px 8px; font-size: 11px; min-height: 30px; }
-/* --- Профиль --- */
-body.pda .profile-page { border-radius: 3px; }
-body.pda .profile-cover { height: 60px; background: var(--header); /* убираем gradient */ }
-body.pda .profile-info { padding: 0 10px 10px; gap: 8px; }
-body.pda .profile-big-av { width: 52px; height: 52px; font-size: 20px; margin-top: -26px; border-radius: 4px; }
-body.pda .profile-details h2 { font-size: 14px; }
-body.pda .profile-bio-text { font-size: 12px; }
-body.pda .profile-joined { font-size: 11px; }
-/* --- Настройки --- */
-body.pda .settings-block { border-radius: 3px; padding: 10px; }
-body.pda .settings-block h3 { font-size: 13px; }
-body.pda .settings-section { margin-bottom: 12px; padding-bottom: 12px; }
-body.pda .settings-section h4 { font-size: 11px; margin-bottom: 7px; }
-body.pda .theme-options { flex-direction: column; gap: 5px; }
-body.pda .theme-btn { padding: 10px 8px; font-size: 12px; flex: none; border-radius: 3px; }
-body.pda .theme-btn .theme-icon { font-size: 18px; }
-body.pda .bio-input { font-size: 12px; padding: 7px; min-height: 55px; }
-body.pda .avatar-preview { width: 50px; height: 50px; font-size: 18px; }
-/* --- Уведомления --- */
-body.pda .notif-item { padding: 7px 2px; gap: 7px; }
-body.pda .notif-avatar { width: 30px; height: 30px; font-size: 11px; border-radius: 3px; }
-body.pda .notif-text { font-size: 12px; }
-body.pda .notif-time { font-size: 10px; margin-top: 2px; }
-body.pda .notif-dot { width: 6px; height: 6px; }
-/* --- Авторизация --- */
-body.pda #auth-overlay { padding: 10px; }
-body.pda #auth-box { width: 100%; max-width: 300px; padding: 16px 14px; border-radius: 6px; }
-body.pda #auth-box h2 { font-size: 15px; margin-bottom: 12px; }
-body.pda #auth-box input { padding: 8px 9px; font-size: 13px; border-radius: 3px; margin-bottom: 8px; }
-body.pda #auth-box button { padding: 9px; font-size: 13px; border-radius: 3px; }
-/* --- Тост --- */
-body.pda #toast { left: 4px; right: 4px;
-        bottom: calc(52px + env(safe-area-inset-bottom, 0));
-        font-size: 12px;
-        border-radius: 3px;
-        padding: 7px 10px; }
-/* --- Лайтбокс --- */
-body.pda #lightbox img, #lightbox video { max-width: 100vw; max-height: 85vh; }
-/* --- Музыкальный плеер: статичный внизу, без drag --- */
-body.pda .music-player { position: fixed;
-        bottom: 48px;
-        left: 0;
-        right: 0;
-        width: 100%;
-        transform: none;
-        border-radius: 0;
-        border-left: none;
-        border-right: none;
-        border-bottom: none;
-        padding: 6px 8px;
-        grid-template-columns: 36px 1fr auto;
-        grid-template-rows: auto auto;
-        gap: 4px 8px;
-        cursor: default;
-        user-select: auto;
-        z-index: 190; }
-body.pda .mp-drag-handle { display: none; }
-body.pda .mp-cover { width: 36px; height: 36px; font-size: 14px; border-radius: 3px; }
-body.pda .mp-title { font-size: 12px; }
-body.pda .mp-artist { font-size: 11px; }
-body.pda .mp-btn { font-size: 16px; }
-body.pda .mp-play { font-size: 18px; }
-body.pda .mp-repeat-btn { font-size: 13px; }
-body.pda .mp-progress-wrap { grid-column: 1/4; gap: 4px; }
-body.pda .mp-progress { height: 3px; }
-body.pda .mp-progress::-webkit-slider-thumb { width: 12px; height: 12px; }
-body.pda .mp-time { font-size: 10px; min-width: 26px; }
-body.pda .mp-vol { display: none; }
-body.pda .mp-controls { gap: 4px; }
-/* --- Музыкальные треки --- */
-body.pda .music-upload-card { border-radius: 3px; margin-bottom: 6px; }
-body.pda .music-upload-header { padding: 9px 10px; font-size: 13px; }
-body.pda .music-upload-body { padding: 10px; }
-body.pda .music-cover-pick { width: 70px; height: 70px; border-radius: 4px; }
-body.pda .music-text-input { padding: 6px 8px; font-size: 12px; border-radius: 4px; }
-body.pda .music-audio-pick { padding: 10px; font-size: 12px; border-radius: 4px; }
-body.pda .track-card { padding: 7px 8px; gap: 7px; border-radius: 3px; margin-bottom: 5px; }
-body.pda .track-cover { width: 38px; height: 38px; font-size: 16px; border-radius: 4px; }
-body.pda .track-title { font-size: 12px; }
-body.pda .track-artist { font-size: 11px; }
-body.pda .track-meta { font-size: 10px; gap: 5px; }
-body.pda .track-like-btn { font-size: 12px; padding: 3px 5px; }
-body.pda .track-del-btn { font-size: 11px; padding: 3px 5px; }
-body.pda .track-play-indicator { font-size: 15px; }
-/* --- Убираем hover-эффекты (нет мыши на КПК) --- */
-body.pda .post-action:hover,
-      .side-block a:hover,
-      .feed-tabs button:hover,
-      .btn-blue:hover,
-      .btn-gray:hover,
-      .attach-btn:hover,
-      .track-card:hover,
-      .music-upload-header:hover,
-      .music-cover-pick:hover,
-      .music-audio-pick:hover,
-      .notif-item:hover { background: inherit; color: inherit; border-color: inherit; }
-/* --- Дополнительный паддинг снизу (плеер + навбар) --- */
-body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom, 0)); }
   </style>
 </head>
 <body>
@@ -719,9 +531,9 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
   <nav>
     <button id="tab-btn-news" class="active" onclick="setTab('news')">Новости</button>
     <button id="tab-btn-my" onclick="setTab('my')">Мои записи</button>
-    <button id="tab-btn-music" onclick="setTab('music')">🎵 Музыка</button>
+    <button id="tab-btn-music" onclick="setTab('music')"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/> Музыка</button>
     <button id="tab-btn-notifications" onclick="setTab('notifications')" style="position:relative">
-      🔔 <span id="notif-badge" style="display:none;position:absolute;top:2px;right:2px;background:#e74c3c;color:white;border-radius:50%;width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;font-weight:bold"></span>
+      <img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/bell.png" alt=""/> <span id="notif-badge" style="display:none;position:absolute;top:2px;right:2px;background:#e74c3c;color:white;border-radius:50%;width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;font-weight:bold"></span>
     </button>
     <button id="tab-btn-profile" onclick="setTab('profile')">Профиль</button>
     <button id="tab-btn-settings" onclick="setTab('settings')">Настройки</button>
@@ -739,12 +551,12 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
     </div>
     <div class="side-block">
       <div class="side-header">Меню</div>
-      <a id="sl-news" class="active" onclick="setTab('news')">📰 Новости</a>
-      <a id="sl-my" onclick="setTab('my')">✏️ Мои записи</a>
-      <a id="sl-music" onclick="setTab('music')">🎵 Музыка</a>
-      <a id="sl-notifications" onclick="setTab('notifications')">🔔 Уведомления <span id="sb-notif-count" style="display:none;background:#e74c3c;color:white;border-radius:10px;padding:0 5px;font-size:11px;margin-left:4px"></span></a>
-      <a id="sl-profile" onclick="setTab('profile')">👤 Мой профиль</a>
-      <a id="sl-settings" onclick="setTab('settings')">⚙️ Настройки</a>
+      <a id="sl-news" class="active" onclick="setTab('news')"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/news.png" alt=""/> Новости</a>
+      <a id="sl-my" onclick="setTab('my')"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/change.png" alt=""/> Мои записи</a>
+      <a id="sl-music" onclick="setTab('music')"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/> Музыка</a>
+      <a id="sl-notifications" onclick="setTab('notifications')"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/bell.png" alt=""/> Уведомления <span id="sb-notif-count" style="display:none;background:#e74c3c;color:white;border-radius:10px;padding:0 5px;font-size:11px;margin-left:4px"></span></a>
+      <a id="sl-profile" onclick="setTab('profile')"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/profile.png" alt=""/> Мой профиль</a>
+      <a id="sl-settings" onclick="setTab('settings')"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/settings.png" alt=""/> Настройки</a>
     </div>
   </div>
 
@@ -769,7 +581,7 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
 
     <div id="settings-panel" style="display:none">
       <div class="settings-block">
-        <h3>⚙️ Настройки</h3>
+        <h3><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/settings.png" alt=""/> Настройки</h3>
 
         <div class="settings-section">
           <h4>Аватар</h4>
@@ -828,7 +640,7 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
     <div id="notifications-panel" style="display:none">
       <div class="settings-block">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <h3 style="margin:0">🔔 Уведомления</h3>
+          <h3 style="margin:0"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/bell.png" alt=""/> Уведомления</h3>
           <button class="btn btn-gray btn-sm" onclick="markAllRead()">Отметить все как прочитанные</button>
         </div>
         <div id="notifications-list"><div style="color:var(--text2);text-align:center;padding:20px">Загрузка...</div></div>
@@ -839,7 +651,7 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
       <!-- Upload form -->
       <div class="music-upload-card" id="music-upload-card">
         <div class="music-upload-header" onclick="toggleMusicUpload()">
-          <span>🎵 Загрузить трек</span>
+          <span><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/> Загрузить трек</span>
           <span id="music-upload-arrow">▾</span>
         </div>
         <div class="music-upload-body" id="music-upload-body" style="display:none">
@@ -857,7 +669,7 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
             </div>
           </div>
           <div class="music-audio-pick" id="music-audio-pick" onclick="document.getElementById('music-audio-input').click()">
-            <span id="music-audio-label">🎵 Выбрать аудиофайл (MP3, OGG, WAV, FLAC…)</span>
+            <span id="music-audio-label"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/> Выбрать аудиофайл (MP3, OGG, WAV, FLAC…)</span>
           </div>
           <input type="file" id="music-audio-input" accept="audio/*" style="display:none" onchange="onMusicAudioPick(this)"/>
           <div style="margin-top:10px;display:flex;justify-content:flex-end">
@@ -881,7 +693,7 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
 <!-- Global floating music player (persists across all tabs) -->
 <div class="music-player" id="music-player" style="display:none">
   <div class="mp-drag-handle"></div>
-  <div class="mp-cover" id="mp-cover">🎵</div>
+  <div class="mp-cover" id="mp-cover"><img class="icon-img" style="width:20px;height:20px" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/></div>
   <div class="mp-info">
     <div class="mp-title" id="mp-title">—</div>
     <div class="mp-artist" id="mp-artist">—</div>
@@ -905,24 +717,24 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
 <!-- Mobile bottom navigation -->
 <nav id="bottom-nav">
   <button id="bn-news" class="active" onclick="setTab('news')">
-    <span class="bn-icon">📰</span>
+    <span class="bn-icon"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/news.png" alt=""/></span>
     <span class="bn-label">Новости</span>
   </button>
   <button id="bn-music" onclick="setTab('music')">
-    <span class="bn-icon">🎵</span>
+    <span class="bn-icon"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/></span>
     <span class="bn-label">Музыка</span>
   </button>
   <button id="bn-notifications" onclick="setTab('notifications')">
-    <span class="bn-icon">🔔</span>
+    <span class="bn-icon"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/bell.png" alt=""/></span>
     <span class="bn-label">Уведомления</span>
     <span class="bn-badge" id="bn-notif-badge" style="display:none"></span>
   </button>
   <button id="bn-profile" onclick="setTab('profile')">
-    <span class="bn-icon">👤</span>
+    <span class="bn-icon"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/profile.png" alt=""/></span>
     <span class="bn-label">Профиль</span>
   </button>
   <button id="bn-settings" onclick="setTab('settings')">
-    <span class="bn-icon">⚙️</span>
+    <span class="bn-icon"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/settings.png" alt=""/></span>
     <span class="bn-label">Настройки</span>
   </button>
 </nav>
@@ -1467,7 +1279,7 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
     list.innerHTML = '<div style="color:var(--text2);text-align:center;padding:20px">Загрузка...</div>';
     const notifs = await api('GET', '/api/notifications');
     if (!notifs.length) {
-      list.innerHTML = '<div class="notif-empty">У вас пока нет уведомлений 🔔</div>';
+      list.innerHTML = '<div class="notif-empty">У вас пока нет уведомлений <img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/bell.png" alt=""/></div>';
       return;
     }
     list.innerHTML = notifs.map(n => {
@@ -1604,7 +1416,7 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
 
   function onMusicAudioPick(input) {
     if (!input.files.length) return;
-    document.getElementById('music-audio-label').textContent = '🎵 ' + input.files[0].name;
+    document.getElementById('music-audio-label').innerHTML = '<img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/> ' + input.files[0].name;
   }
 
   async function uploadTrack() {
@@ -1629,10 +1441,10 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
     document.getElementById('music-title-input').value = '';
     document.getElementById('music-artist-input').value = '';
     audioInput.value = ''; coverInput.value = '';
-    document.getElementById('music-audio-label').textContent = '🎵 Выбрать аудиофайл (MP3, OGG, WAV, FLAC…)';
+    document.getElementById('music-audio-label').innerHTML = '<img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/> Выбрать аудиофайл (MP3, OGG, WAV, FLAC…)';
     document.getElementById('music-cover-preview-wrap').innerHTML = '<span style="font-size:32px">🖼</span><div style="font-size:12px;color:var(--text2);margin-top:6px">Обложка</div>';
     toggleMusicUpload();
-    toast('Трек опубликован! 🎵');
+    toast('Трек опубликован!');
     await loadTracks();
   }
 
@@ -1650,14 +1462,14 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
   function renderTrackList(tracks) {
     const list = document.getElementById('tracks-list');
     if (!tracks.length) {
-      list.innerHTML = '<div class="empty">Треков пока нет. Будьте первым! 🎵</div>';
+      list.innerHTML = '<div class="empty">Треков пока нет. Будьте первым! <img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/></div>';
       return;
     }
     list.innerHTML = tracks.map((t, i) => {
       const idx = allTracks.findIndex(x => x.id === t.id);
       const coverHtml = t.cover
         ? `<img src="${t.cover}" alt="cover"/>`
-        : '🎵';
+        : '<img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/>';
       const liked = parseInt(t.user_liked) > 0;
       const likes = parseInt(t.likes_count) || 0;
       const plays = parseInt(t.plays) || 0;
@@ -1668,7 +1480,7 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
           <div class="track-title">${t.title}</div>
           <div class="track-artist">${t.artist}</div>
           <div class="track-meta">
-            <span>👤 ${t.username}</span>
+            <span><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/profile.png" alt=""/> ${t.username}</span>
             <span>▶ ${plays}</span>
           </div>
         </div>
@@ -1692,7 +1504,7 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
     document.getElementById('mp-title').textContent = t.title;
     document.getElementById('mp-artist').textContent = t.artist;
     const mpCover = document.getElementById('mp-cover');
-    mpCover.innerHTML = t.cover ? `<img src="${t.cover}" alt="cover"/>` : '🎵';
+    mpCover.innerHTML = t.cover ? `<img src="${t.cover}" alt="cover"/>` : '<img class="icon-img" style="width:20px;height:20px" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/>';
     document.getElementById('music-player').style.display = 'grid';
     // Highlight playing card
     document.querySelectorAll('.track-card').forEach(c => c.classList.remove('playing'));
@@ -1796,8 +1608,6 @@ body.pda #layout { padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom
 
   // ── PLAYER DRAG ───────────────────────────────────
   (function initPlayerDrag() {
-    // Отключаем перетаскивание на КПК (определяется сервером или по ширине экрана)
-    if (document.body.classList.contains('pda') || window.innerWidth <= 320) return;
     const player = document.getElementById('music-player');
     let dragging = false, startX, startY, origLeft, origTop;
 
