@@ -603,7 +603,7 @@ app.delete('/api/tracks/:id', requireAuth, async (req, res) => {
 });
 
 // ── AI PROXY (Ollama via tunnel) ─────────────────────
-const OLLAMA_TUNNEL = process.env.OLLAMA_TUNNEL || 'http://bore.pub:58345';
+const OLLAMA_TUNNEL = process.env.OLLAMA_TUNNEL || 'https://pvujd-83-168-88-27.free.pinggy.net';
 
 app.post('/api/ai/chat', async (req, res) => {
   try {
