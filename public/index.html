@@ -1927,6 +1927,12 @@
   let aiImageBase64 = null;
   let aiImageMime = null;
 
+  function buildSystemPrompt() {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' });
+    return `Текущая дата: ${dateStr}. Если в сообщении пользователя есть блок [Результаты поиска], это РЕАЛЬНЫЕ, СВЕЖИЕ данные из интернета — они ВСЕГДА важнее твоих собственных знаний или предположений о текущей дате/событиях. Никогда не говори дату или год из своих обучающих данных, если есть результаты поиска или указана текущая дата выше — используй именно их. Если результатов поиска нет и вопрос касается актуальных событий, прямо скажи, что не имеешь доступа к свежим данным, вместо того чтобы угадывать.`;
+  }
+
   function getAiModel() { return document.getElementById('ai-model-select').value; }
   function isWebSearchOn() { return document.getElementById('ai-web-search').checked; }
   function aiUserInit() { return me ? me.username[0].toUpperCase() : '?'; }
@@ -2026,9 +2032,9 @@
         });
         const sd = await sr.json();
         if (sd.results && sd.results.length) {
-          searchContext = '\n\n[Результаты поиска]:\n' + sd.results.map((r,i) =>
+          searchContext = '\n\n[Результаты поиска — АКТУАЛЬНЫЕ данные из интернета на сегодня, используй ИХ, а не свои внутренние знания]:\n' + sd.results.map((r,i) =>
             `${i+1}. ${r.title}\n${r.body}\nИсточник: ${r.href}`
-          ).join('\n\n') + '\n[Конец результатов]\n';
+          ).join('\n\n') + '\n[Конец результатов. Отвечай на основе этих данных.]\n';
           appendAiMsg('info', '🌐 Найдено ' + sd.results.length + ' результатов');
         }
       } catch { appendAiMsg('info', '⚠️ Поиск недоступен'); }
@@ -2048,7 +2054,8 @@
     setAiStatus(model === 'moondream' ? '👁 Анализирую изображение...' : 'Думаю...');
 
     try {
-      const body = { model, messages: aiHistory, stream: true };
+      const messagesWithSystem = [{ role: 'system', content: buildSystemPrompt() }, ...aiHistory];
+      const body = { model, messages: messagesWithSystem, stream: true };
       if (model !== 'moondream') body.options = { think: false };
 
       const res = await fetch('/api/ai/chat', {
