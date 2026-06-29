@@ -604,53 +604,35 @@ app.delete('/api/tracks/:id', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ── AI WEB SEARCH (DuckDuckGo via Python) ────────────
-const { execFile } = require('child_process');
-
-app.post('/api/ai/search', requireAuth, (req, res) => {
+// ── AI WEB SEARCH (Tavily) ────────────────────────────
+app.post('/api/ai/search', requireAuth, async (req, res) => {
   const { query } = req.body;
   if (!query) return res.status(400).json({ error: 'No query' });
-  // DDGS бывает нестабильна: разные backend'ы (lite/html/api) могут давать
-  // разные результаты на один и тот же запрос, иногда ловит rate-limit и
-  // тихо отдаёт пустой список вместо ошибки. Пробуем несколько backend'ов
-  // по очереди и берём первый непустой результат.
-  const script = `
-import json, sys, time
 
-query = sys.argv[1]
-backends = ['auto', 'lite', 'html']
-results = []
-errors = []
+  try {
+    const tavilyRes = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: process.env.TAVILY_API_KEY,
+        query,
+        max_results: 6,
+        search_depth: 'basic',
+      }),
+    });
 
-from duckduckgo_search import DDGS
+    const data = await tavilyRes.json();
 
-for backend in backends:
-    try:
-        with DDGS() as ddgs:
-            found = list(ddgs.text(query, region='ru-ru', backend=backend, max_results=6))
-        if found:
-            results = [{'title': r.get('title',''), 'body': r.get('body',''), 'href': r.get('href','')} for r in found]
-            break
-        else:
-            errors.append(backend + ': empty')
-    except Exception as e:
-        errors.append(backend + ': ' + str(e))
-        time.sleep(1)
+    const results = (data.results || []).map(r => ({
+      title: r.title || '',
+      body: r.content || '',
+      href: r.url || '',
+    }));
 
-print(json.dumps({'results': results, 'debug': errors}), file=sys.stdout)
-`;
-  execFile('python3', ['-c', script, query], { timeout: 20000 }, (err, stdout, stderr) => {
-    if (err) return res.status(500).json({ error: 'Search failed: ' + err.message });
-    try {
-      const parsed = JSON.parse(stdout);
-      if (parsed.debug && parsed.debug.length) {
-        console.log('[ai/search] backends tried:', parsed.debug.join(' | '));
-      }
-      res.json({ results: parsed.results });
-    } catch {
-      res.status(500).json({ error: 'Parse error: ' + stdout });
-    }
-  });
+    res.json({ results });
+  } catch (e) {
+    res.status(500).json({ error: 'Search failed: ' + e.message });
+  }
 });
 
 // ── AI PROXY (Ollama via tunnel) ─────────────────────
