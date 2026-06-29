@@ -603,7 +603,7 @@ app.delete('/api/tracks/:id', requireAuth, async (req, res) => {
 });
 
 // ── AI PROXY (Ollama via tunnel) ─────────────────────
-const OLLAMA_TUNNEL = process.env.OLLAMA_TUNNEL || 'https://d99caa47fcf45a.lhr.life';
+const OLLAMA_TUNNEL = process.env.OLLAMA_TUNNEL || 'http://bore.pub:46148';
 
 app.post('/api/ai/chat', async (req, res) => {
   try {
