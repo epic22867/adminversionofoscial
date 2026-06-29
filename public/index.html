@@ -2042,10 +2042,10 @@
 
     // Build history message
     if (imgB64) {
-      aiHistory.push({ role: 'user', content: [
-        { type: 'text', text: text || 'Что на картинке?' },
-        { type: 'image_url', image_url: { url: `data:${imgMime};base64,${imgB64}` } }
-      ]});
+      // Ollama's native /api/chat expects content as a plain string and
+      // images as a separate array of raw base64 strings (no data: prefix,
+      // no OpenAI-style image_url object).
+      aiHistory.push({ role: 'user', content: text || 'Что на картинке?', images: [imgB64] });
     } else {
       aiHistory.push({ role: 'user', content: searchContext ? text + searchContext : text });
     }
