@@ -562,6 +562,13 @@
     .ai-send-btn:disabled { opacity:.5; cursor:not-allowed; }
     .ai-status { font-size:11px; color:var(--text2); text-align:center; padding:3px 12px 6px; flex-shrink:0; min-height:18px; }
 
+    .ai-toggle { display:flex; align-items:center; gap:4px; cursor:pointer; font-size:12px; color:var(--header-muted); user-select:none; }
+    .ai-toggle input { display:none; }
+    .ai-toggle-slider { width:28px; height:16px; background:rgba(255,255,255,0.2); border-radius:8px; position:relative; transition:background .2s; flex-shrink:0; }
+    .ai-toggle-slider::after { content:''; position:absolute; width:12px; height:12px; border-radius:50%; background:white; top:2px; left:2px; transition:left .2s; }
+    .ai-toggle input:checked + .ai-toggle-slider { background:#2ecc71; }
+    .ai-toggle input:checked + .ai-toggle-slider::after { left:14px; }
+
   </style>
 </head>
 <body>
@@ -727,24 +734,35 @@
     <div id="ai-panel" style="display:none">
       <div class="ai-chat-wrap">
         <div class="ai-chat-header">
-          <span>🤖 ИИ Чат — Qwen3 (Ollama)</span>
+          <span>🤖 ИИ Чат</span>
           <div class="ai-header-right">
             <select id="ai-model-select" class="ai-model-sel">
               <option value="qwen3:8b">qwen3:8b</option>
+              <option value="moondream">moondream 👁</option>
               <option value="qwen3:latest">qwen3:latest</option>
-              <option value="qwen3:4b">qwen3:4b</option>
             </select>
-            <button class="btn btn-gray btn-sm" onclick="clearAiChat()">🗑 Очистить</button>
+            <label class="ai-toggle" title="Поиск в интернете">
+              🌐 <input type="checkbox" id="ai-web-search"> <span class="ai-toggle-slider"></span>
+            </label>
+            <button class="btn btn-gray btn-sm" onclick="clearAiChat()">🗑</button>
           </div>
         </div>
         <div class="ai-messages" id="ai-messages">
           <div class="ai-welcome">
             <div style="font-size:32px;margin-bottom:8px">🤖</div>
-            <div style="font-weight:bold;margin-bottom:4px">Привет! Я Qwen3 через Ollama.</div>
-            <div style="font-size:12px;color:var(--text2)">Задай мне любой вопрос — я отвечу локально на твоём устройстве.</div>
+            <div style="font-weight:bold;margin-bottom:4px">Привет! Я ИИ через Ollama.</div>
+            <div style="font-size:12px;color:var(--text2)">Задай вопрос, прикрепи картинку или включи 🌐 для поиска в интернете.</div>
+          </div>
+        </div>
+        <div id="ai-img-preview" style="display:none;padding:6px 12px;border-top:1px solid var(--border)">
+          <div style="position:relative;display:inline-block">
+            <img id="ai-img-thumb" style="max-height:80px;max-width:160px;border-radius:6px;border:1px solid var(--border)"/>
+            <button onclick="clearAiImage()" style="position:absolute;top:-6px;right:-6px;background:#e74c3c;color:white;border:none;border-radius:50%;width:18px;height:18px;font-size:11px;cursor:pointer;line-height:1">✕</button>
           </div>
         </div>
         <div class="ai-input-wrap">
+          <button class="attach-btn" onclick="document.getElementById('ai-img-input').click()" title="Прикрепить изображение" style="padding:7px 10px;flex-shrink:0">🖼</button>
+          <input type="file" id="ai-img-input" accept="image/*" style="display:none" onchange="handleAiImage(this)"/>
           <textarea id="ai-input" class="ai-input" placeholder="Напиши сообщение..." rows="1"
             onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAiMessage()}"
             oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
@@ -1903,30 +1921,29 @@
   })();
 
 
-  // ── AI CHAT (Ollama / Qwen3) ──────────────────────
+  // ── AI CHAT (Ollama + vision + web search) ────────
   const aiHistory = [];
   let aiStreaming = false;
-  const OLLAMA_URL = '';
+  let aiImageBase64 = null;
+  let aiImageMime = null;
 
-  function getAiModel() {
-    return document.getElementById('ai-model-select').value;
-  }
-
-  function aiUserInit() {
-    if (me) return me.username[0].toUpperCase();
-    return '?';
-  }
+  function getAiModel() { return document.getElementById('ai-model-select').value; }
+  function isWebSearchOn() { return document.getElementById('ai-web-search').checked; }
+  function aiUserInit() { return me ? me.username[0].toUpperCase() : '?'; }
 
   function appendAiMsg(role, text, streaming) {
     const msgs = document.getElementById('ai-messages');
     const id = 'ai-msg-' + Date.now();
-    const welcome = msgs.querySelector('.ai-welcome');
-    if (welcome) welcome.remove();
-
+    msgs.querySelector('.ai-welcome')?.remove();
     if (role === 'user') {
       msgs.innerHTML += `<div class="ai-msg user" id="${id}">
         <div class="ai-avatar user">${aiUserInit()}</div>
         <div class="ai-bubble">${escapeHtml(text)}</div>
+      </div>`;
+    } else if (role === 'user-img') {
+      msgs.innerHTML += `<div class="ai-msg user" id="${id}">
+        <div class="ai-avatar user">${aiUserInit()}</div>
+        <div class="ai-bubble"><img src="${text}" style="max-width:180px;max-height:140px;border-radius:6px;display:block"/></div>
       </div>`;
     } else if (role === 'bot') {
       msgs.innerHTML += `<div class="ai-msg bot" id="${id}">
@@ -1934,9 +1951,9 @@
         <div class="ai-bubble" id="${id}-text">${streaming ? '<div class="ai-typing"><div class="ai-dot"></div><div class="ai-dot"></div><div class="ai-dot"></div></div>' : escapeHtml(text)}</div>
       </div>`;
     } else if (role === 'error') {
-      msgs.innerHTML += `<div class="ai-msg error" id="${id}">
-        <div class="ai-bubble">⚠️ ${escapeHtml(text)}</div>
-      </div>`;
+      msgs.innerHTML += `<div class="ai-msg error" id="${id}"><div class="ai-bubble">⚠️ ${escapeHtml(text)}</div></div>`;
+    } else if (role === 'info') {
+      msgs.innerHTML += `<div style="text-align:center;font-size:11px;color:var(--text2);padding:4px 0" id="${id}">${text}</div>`;
     }
     msgs.scrollTop = msgs.scrollHeight;
     return id;
@@ -1944,47 +1961,100 @@
 
   function updateAiBubble(id, text) {
     const el = document.getElementById(id + '-text');
-    if (el) {
-      el.textContent = text;
-      document.getElementById('ai-messages').scrollTop = 9999;
-    }
+    if (el) { el.textContent = text; document.getElementById('ai-messages').scrollTop = 9999; }
   }
 
   function escapeHtml(s) {
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  function setAiStatus(msg) {
-    document.getElementById('ai-status').textContent = msg;
+  function setAiStatus(msg) { document.getElementById('ai-status').textContent = msg; }
+
+  function handleAiImage(input) {
+    const file = input.files[0];
+    if (!file) return;
+    document.getElementById('ai-model-select').value = 'moondream';
+    const reader = new FileReader();
+    reader.onload = e => {
+      const dataUrl = e.target.result;
+      aiImageMime = file.type;
+      aiImageBase64 = dataUrl.split(',')[1];
+      document.getElementById('ai-img-thumb').src = dataUrl;
+      document.getElementById('ai-img-preview').style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
+  }
+
+  function clearAiImage() {
+    aiImageBase64 = null; aiImageMime = null;
+    document.getElementById('ai-img-preview').style.display = 'none';
+    document.getElementById('ai-img-thumb').src = '';
   }
 
   async function sendAiMessage() {
     if (aiStreaming) return;
     const input = document.getElementById('ai-input');
     const text = input.value.trim();
-    if (!text) return;
+    if (!text && !aiImageBase64) return;
 
     input.value = '';
     input.style.height = 'auto';
     document.getElementById('ai-send-btn').disabled = true;
     aiStreaming = true;
 
-    appendAiMsg('user', text);
-    aiHistory.push({ role: 'user', content: text });
+    const model = getAiModel();
+    const useWebSearch = isWebSearchOn() && !aiImageBase64;
+    const imgThumbSrc = document.getElementById('ai-img-thumb').src;
+    const imgB64 = aiImageBase64;
+    const imgMime = aiImageMime;
+
+    // Show user messages
+    if (imgB64) appendAiMsg('user-img', imgThumbSrc);
+    if (text) appendAiMsg('user', text);
+    clearAiImage();
+
+    // Web search
+    let searchContext = '';
+    if (useWebSearch && text) {
+      setAiStatus('🌐 Ищу в интернете...');
+      try {
+        const sr = await fetch('/api/ai/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: text })
+        });
+        const sd = await sr.json();
+        if (sd.results && sd.results.length) {
+          searchContext = '\n\n[Результаты поиска]:\n' + sd.results.map((r,i) =>
+            `${i+1}. ${r.title}\n${r.body}\nИсточник: ${r.href}`
+          ).join('\n\n') + '\n[Конец результатов]\n';
+          appendAiMsg('info', '🌐 Найдено ' + sd.results.length + ' результатов');
+        }
+      } catch { appendAiMsg('info', '⚠️ Поиск недоступен'); }
+    }
+
+    // Build history message
+    if (imgB64) {
+      aiHistory.push({ role: 'user', content: [
+        { type: 'text', text: text || 'Что на картинке?' },
+        { type: 'image_url', image_url: { url: `data:${imgMime};base64,${imgB64}` } }
+      ]});
+    } else {
+      aiHistory.push({ role: 'user', content: searchContext ? text + searchContext : text });
+    }
 
     const botId = appendAiMsg('bot', '', true);
-    setAiStatus('Qwen3 думает...');
+    setAiStatus(model === 'moondream' ? '👁 Анализирую изображение...' : 'Думаю...');
 
     try {
-      const res = await fetch(`${OLLAMA_URL}/api/ai/chat`, {
+      const body = { model, messages: aiHistory, stream: true };
+      if (model !== 'moondream') body.options = { think: false };
+
+      const res = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: getAiModel(),
-          messages: aiHistory,
-          stream: true,
-          options: { think: false }
-        })
+        body: JSON.stringify(body)
       });
 
       if (!res.ok) {
@@ -1995,33 +2065,23 @@
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let full = '';
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split('\n')) {
+        for (const line of decoder.decode(value, { stream: true }).split('\n')) {
           if (!line.trim()) continue;
           try {
             const json = JSON.parse(line);
-            if (json.message && json.message.content) {
-              full += json.message.content;
-              updateAiBubble(botId, full);
-            }
+            if (json.message?.content) { full += json.message.content; updateAiBubble(botId, full); }
           } catch {}
         }
       }
-
       aiHistory.push({ role: 'assistant', content: full });
       setAiStatus('');
     } catch (e) {
       document.getElementById(botId)?.remove();
-      let msg = e.message || 'Неизвестная ошибка';
-      if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-        msg = 'Не удалось подключиться к Ollama через ngrok. Проверь, что ngrok запущен. Детали: ' + e.message;
-      }
-      appendAiMsg('error', msg);
-      aiHistory.pop(); // remove the user message from history on error
+      aiHistory.pop();
+      appendAiMsg('error', e.message || 'Неизвестная ошибка');
       setAiStatus('');
     } finally {
       aiStreaming = false;
@@ -2032,10 +2092,11 @@
 
   function clearAiChat() {
     aiHistory.length = 0;
+    clearAiImage();
     document.getElementById('ai-messages').innerHTML = `<div class="ai-welcome">
       <div style="font-size:32px;margin-bottom:8px">🤖</div>
-      <div style="font-weight:bold;margin-bottom:4px">Чат очищен. Начни новый разговор!</div>
-      <div style="font-size:12px;color:var(--text2)">Я Qwen3, работаю локально через Ollama.</div>
+      <div style="font-weight:bold;margin-bottom:4px">Чат очищен!</div>
+      <div style="font-size:12px;color:var(--text2)">Задай вопрос, прикрепи картинку или включи 🌐 для поиска.</div>
     </div>`;
     setAiStatus('');
   }
