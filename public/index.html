@@ -453,6 +453,9 @@
       #bottom-nav { display:none; }
     }
     /* ── MUSIC PLATFORM ──────────────────────────── */
+    .track-pin-btn { background:none; border:1px solid var(--border); border-radius:4px; padding:4px 8px; cursor:pointer; font-size:14px; color:var(--text2); transition:all .15s; }
+    .track-pin-btn:hover { border-color:#4a76a8; color:#4a76a8; }
+    .track-pin-btn.pinned { color:#e67e22; border-color:#e67e22; }
     .music-upload-card { background:var(--card); border:1px solid var(--border); border-radius:8px; margin-bottom:10px; overflow:hidden; }
     .music-upload-header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; font-size:14px; font-weight:bold; color:var(--text3); cursor:pointer; }
     .music-upload-header:hover { background:var(--side-link); }
@@ -519,25 +522,6 @@
     .mp-vol input::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:#4a76a8; }
 
     #music-search-bar { margin-bottom:8px; }
-
-    /* ── PROFILE MUSIC SECTION ───────────────────────── */
-    .profile-music-section { background:var(--card); border-radius:4px; border:1px solid var(--border); margin-top:10px; overflow:hidden; }
-    .profile-music-header { background:var(--header); color:var(--header-text); padding:8px 14px; font-size:13px; font-weight:bold; display:flex; align-items:center; gap:8px; }
-    .profile-music-list { padding:6px 0; }
-    .profile-track-card { display:flex; align-items:center; gap:10px; padding:8px 14px; cursor:pointer; border-bottom:1px solid var(--border); transition:background .1s; }
-    .profile-track-card:last-child { border-bottom:none; }
-    .profile-track-card:hover { background:var(--side-link); }
-    .profile-track-card.playing { background:rgba(74,118,168,0.10); }
-    .profile-track-card.playing .profile-track-title { color:#4a76a8; }
-    .profile-track-cover { width:38px; height:38px; border-radius:5px; background:linear-gradient(135deg,#4a76a8,#3d6690); display:flex; align-items:center; justify-content:center; font-size:16px; overflow:hidden; flex-shrink:0; }
-    .profile-track-cover img { width:100%; height:100%; object-fit:cover; }
-    .profile-track-info { flex:1; min-width:0; }
-    .profile-track-title { font-size:13px; font-weight:bold; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .profile-track-artist { font-size:12px; color:var(--text2); margin-top:1px; }
-    .profile-track-actions { display:flex; align-items:center; gap:8px; flex-shrink:0; }
-    .profile-track-play-icon { font-size:18px; color:var(--text2); }
-    .profile-track-card:hover .profile-track-play-icon { color:#4a76a8; }
-    .profile-music-empty { padding:18px 14px; color:var(--text2); font-size:13px; text-align:center; }
 
     @media (max-width:768px) {
       .music-player { grid-template-columns:44px 1fr; grid-template-rows:auto auto auto; bottom:70px; }
@@ -687,9 +671,14 @@
           </div>
         </div>
       </div>
-      <div class="profile-music-section" id="profile-music-section" style="display:none">
-        <div class="profile-music-header">🎵 Музыка</div>
-        <div class="profile-music-list" id="profile-music-list"></div>
+      <!-- Profile music section -->
+      <div id="profile-music-section" style="display:none; margin-top:10px;">
+        <div class="side-block" style="border-radius:8px; overflow:hidden;">
+          <div class="side-header" style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px;">
+            <span>🎵 Музыка</span>
+          </div>
+          <div id="profile-tracks-list" style="padding:8px 10px;"></div>
+        </div>
       </div>
     </div>
 
@@ -1443,6 +1432,75 @@
     }, 400);
   }
 
+  // ── PROFILE MUSIC PINS ────────────────────────────
+  function getPinnedKey(userId) { return `pinned_tracks_${userId}`; }
+
+  function getPinnedTracks(userId) {
+    try { return JSON.parse(localStorage.getItem(getPinnedKey(userId)) || '[]'); } catch { return []; }
+  }
+
+  function isTrackPinned(userId, trackId) {
+    return getPinnedTracks(userId).includes(trackId);
+  }
+
+  function togglePinTrack(trackId, btn) {
+    if (!me) { toast('Войдите чтобы добавлять музыку в профиль', '#e74c3c'); return; }
+    const key = getPinnedKey(me.id);
+    let pins = getPinnedTracks(me.id);
+    if (pins.includes(trackId)) {
+      pins = pins.filter(id => id !== trackId);
+      btn.classList.remove('pinned');
+      btn.textContent = '📎';
+      btn.title = 'Добавить в профиль';
+      toast('Трек убран из профиля', '#888');
+    } else {
+      pins.push(trackId);
+      btn.classList.add('pinned');
+      btn.textContent = '📌';
+      btn.title = 'Убрать из профиля';
+      toast('Трек добавлен в профиль! 📌');
+    }
+    localStorage.setItem(key, JSON.stringify(pins));
+  }
+
+  async function loadProfileTracks(userId) {
+    const section = document.getElementById('profile-music-section');
+    const list = document.getElementById('profile-tracks-list');
+    // Get all tracks and filter by userId + pinned
+    const tracks = await api('GET', '/api/tracks');
+    let profileTracks;
+    if (me && userId === me.id) {
+      // Own profile: show pinned tracks
+      const pins = getPinnedTracks(me.id);
+      profileTracks = tracks.filter(t => pins.includes(t.id));
+    } else {
+      // Other profile: show their pinned tracks (stored in their own browser — 
+      // fallback: show all their uploaded tracks)
+      profileTracks = tracks.filter(t => t.user_id === userId);
+    }
+    if (!profileTracks.length) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = 'block';
+    list.innerHTML = profileTracks.map(t => {
+      const idx = allTracks.findIndex(x => x.id === t.id);
+      const coverHtml = t.cover ? `<img src="${t.cover}" alt="cover"/>` : '🎵';
+      const plays = parseInt(t.plays) || 0;
+      return `<div class="track-card" id="profile-track-card-${t.id}" onclick="playTrack(${idx})" style="margin-bottom:6px">
+        <div class="track-cover" style="width:44px;height:44px;">${coverHtml}</div>
+        <div class="track-info">
+          <div class="track-title">${t.title}</div>
+          <div class="track-artist">${t.artist}</div>
+          <div class="track-meta"><span>▶ ${plays}</span></div>
+        </div>
+        <div class="track-actions" onclick="event.stopPropagation()">
+          <button class="mp-btn" onclick="playTrack(${idx})" title="Слушать" style="font-size:18px;background:none;border:none;cursor:pointer;">▶</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
   // ── PROFILE & SETTINGS ────────────────────────────
   async function uploadAvatar(input) {
     if (!input.files.length) return;
@@ -1468,11 +1526,10 @@
   }
 
   async function loadProfile(userId) {
-    if (!me && !isGuest) return;
-    const targetId = userId || (me ? me.id : null);
-    if (!targetId) return;
+    if (!me) return;
+    const targetId = userId || me.id;
     const user = await api('GET', `/api/profile/${targetId}`);
-    if (!userId && me) {
+    if (!userId) {
       me.bio = user.bio;
       me.avatar = user.avatar;
     }
@@ -1488,50 +1545,9 @@
     document.getElementById('profile-joined').textContent = `📅 На сайте с ${joined}`;
     // Show/hide edit controls: only visible when viewing own profile
     const editControls = document.getElementById('profile-edit-hint');
-    if (editControls) editControls.style.display = (me && targetId === me.id) ? 'block' : 'none';
-
-    // Load user's tracks for the profile music section
+    if (editControls) editControls.style.display = (targetId === me.id) ? 'block' : 'none';
+    // Load profile music
     await loadProfileTracks(targetId);
-  }
-
-  async function loadProfileTracks(userId) {
-    const section = document.getElementById('profile-music-section');
-    const list = document.getElementById('profile-music-list');
-    try {
-      // Fetch all tracks and filter by this user
-      const tracks = await api('GET', '/api/tracks');
-      const userTracks = tracks.filter(t => t.user_id === userId);
-      if (!userTracks.length) {
-        section.style.display = 'none';
-        return;
-      }
-      section.style.display = 'block';
-      list.innerHTML = userTracks.map(t => {
-        const idx = allTracks.findIndex(x => x.id === t.id);
-        // If allTracks not loaded yet (e.g. user never opened Music tab), inject them
-        if (idx === -1) {
-          allTracks.push(t);
-        }
-        const realIdx = allTracks.findIndex(x => x.id === t.id);
-        const coverHtml = t.cover ? `<img src="${t.cover}" alt="cover"/>` : '🎵';
-        const likes = parseInt(t.likes_count) || 0;
-        const plays = parseInt(t.plays) || 0;
-        return `<div class="profile-track-card" id="profile-track-card-${t.id}" onclick="playTrack(${realIdx})">
-          <div class="profile-track-cover">${coverHtml}</div>
-          <div class="profile-track-info">
-            <div class="profile-track-title">${t.title}</div>
-            <div class="profile-track-artist">${t.artist}</div>
-          </div>
-          <div class="profile-track-actions">
-            ${plays > 0 ? `<span style="font-size:11px;color:var(--text2)">▶ ${plays}</span>` : ''}
-            ${likes > 0 ? `<span style="font-size:11px;color:var(--text2)">❤ ${likes}</span>` : ''}
-            <span class="profile-track-play-icon">▶</span>
-          </div>
-        </div>`;
-      }).join('');
-    } catch(e) {
-      section.style.display = 'none';
-    }
   }
 
   async function openUserProfile(userId) {
@@ -1639,6 +1655,8 @@
       const likes = parseInt(t.likes_count) || 0;
       const plays = parseInt(t.plays) || 0;
       const canDel = me && (t.user_id === me.id || amAdmin);
+      const isPinned = me && isTrackPinned(me.id, t.id);
+      const pinBtn = me ? `<button class="track-pin-btn${isPinned ? ' pinned' : ''}" onclick="togglePinTrack(${t.id},this)" title="${isPinned ? 'Убрать из профиля' : 'Добавить в профиль'}">${isPinned ? '📌' : '📎'}</button>` : '';
       return `<div class="track-card" id="track-card-${t.id}" onclick="playTrack(${idx})">
         <div class="track-cover">${coverHtml}</div>
         <div class="track-info">
@@ -1651,6 +1669,7 @@
         </div>
         <div class="track-actions" onclick="event.stopPropagation()">
           ${me ? `<button class="track-like-btn ${liked?'liked':''}" onclick="likeTrack(${t.id},this)">❤ ${likes > 0 ? likes : ''}</button>` : ''}
+          ${pinBtn}
           ${canDel ? `<button class="track-del-btn" onclick="deleteTrack(${t.id})">✕</button>` : ''}
         </div>
       </div>`;
@@ -1675,10 +1694,6 @@
     document.querySelectorAll('.track-card').forEach(c => c.classList.remove('playing'));
     const card = document.getElementById('track-card-' + t.id);
     if (card) card.classList.add('playing');
-    // Highlight profile page track cards too
-    document.querySelectorAll('.profile-track-card').forEach(c => c.classList.remove('playing'));
-    const pcard = document.getElementById('profile-track-card-' + t.id);
-    if (pcard) pcard.classList.add('playing');
   }
 
   function togglePlay() {
