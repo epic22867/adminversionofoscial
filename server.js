@@ -636,7 +636,7 @@ app.post('/api/ai/search', requireAuth, async (req, res) => {
 });
 
 // ── AI PROXY (Ollama via tunnel) ─────────────────────
-const OLLAMA_TUNNEL = process.env.OLLAMA_TUNNEL || 'https://tayxb-83-168-88-27.free.pinggy.net';
+const OLLAMA_TUNNEL = process.env.OLLAMA_TUNNEL || 'https://smelting-womanless-thousand.ngrok-free.dev';
 
 app.post('/api/ai/chat', async (req, res) => {
   try {
