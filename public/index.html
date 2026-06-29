@@ -1927,6 +1927,13 @@
   let aiImageBase64 = null;
   let aiImageMime = null;
 
+  // Когда пользователь присылает картинку, она ВСЕГДА сначала уходит в
+  // vision-модель (moondream) только за описанием. Финальный текстовый
+  // ответ всегда даёт основная модель — независимо от того, что выбрано
+  // в селекторе моделей.
+  const VISION_MODEL = 'moondream';
+  const PRIMARY_MODEL = 'qwen3:8b';
+
   function buildSystemPrompt() {
     const now = new Date();
     const dateStr = now.toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -1979,7 +1986,6 @@
   function handleAiImage(input) {
     const file = input.files[0];
     if (!file) return;
-    document.getElementById('ai-model-select').value = 'moondream';
     const reader = new FileReader();
     reader.onload = e => {
       const dataUrl = e.target.result;
@@ -2013,50 +2019,82 @@
     const useWebSearch = isWebSearchOn() && !aiImageBase64;
     const imgThumbSrc = document.getElementById('ai-img-thumb').src;
     const imgB64 = aiImageBase64;
-    const imgMime = aiImageMime;
 
     // Show user messages
     if (imgB64) appendAiMsg('user-img', imgThumbSrc);
     if (text) appendAiMsg('user', text);
     clearAiImage();
 
-    // Web search
-    let searchContext = '';
-    if (useWebSearch && text) {
-      setAiStatus('🌐 Ищу в интернете...');
-      try {
-        const sr = await fetch('/api/ai/search', {
+    try {
+      // ── ЭТАП 1: если есть картинка — спросить у moondream только описание ──
+      let visionDescription = '';
+      if (imgB64) {
+        setAiStatus('👁 Анализирую изображение...');
+        const visionPrompt = text
+          ? `Опиши подробно, что изображено на картинке. Контекст вопроса пользователя: "${text}"`
+          : 'Опиши подробно и точно, что изображено на этой картинке.';
+
+        const visionRes = await fetch('/api/ai/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: text })
+          body: JSON.stringify({
+            model: VISION_MODEL,
+            messages: [{ role: 'user', content: visionPrompt, images: [imgB64] }],
+            stream: false
+          })
         });
-        const sd = await sr.json();
-        if (sd.results && sd.results.length) {
-          searchContext = '\n\n[Результаты поиска — АКТУАЛЬНЫЕ данные из интернета на сегодня, используй ИХ, а не свои внутренние знания]:\n' + sd.results.map((r,i) =>
-            `${i+1}. ${r.title}\n${r.body}\nИсточник: ${r.href}`
-          ).join('\n\n') + '\n[Конец результатов. Отвечай на основе этих данных.]\n';
-          appendAiMsg('info', '🌐 Найдено ' + sd.results.length + ' результатов');
+
+        if (!visionRes.ok) {
+          const err = await visionRes.text();
+          throw new Error(`Vision-модель вернула ${visionRes.status}: ${err}`);
         }
-      } catch { appendAiMsg('info', '⚠️ Поиск недоступен'); }
-    }
 
-    // Build history message
-    if (imgB64) {
-      // Ollama's native /api/chat expects content as a plain string and
-      // images as a separate array of raw base64 strings (no data: prefix,
-      // no OpenAI-style image_url object).
-      aiHistory.push({ role: 'user', content: text || 'Что на картинке?', images: [imgB64] });
-    } else {
-      aiHistory.push({ role: 'user', content: searchContext ? text + searchContext : text });
-    }
+        const visionData = await visionRes.json();
+        visionDescription = (visionData.message && visionData.message.content) || '';
+        if (!visionDescription) throw new Error('Vision-модель не вернула описание изображения');
 
-    const botId = appendAiMsg('bot', '', true);
-    setAiStatus(model === 'moondream' ? '👁 Анализирую изображение...' : 'Думаю...');
+        appendAiMsg('info', '👁 Описание изображения: ' + visionDescription);
+      }
 
-    try {
+      // Web search (только для текстовых сообщений без картинки)
+      let searchContext = '';
+      if (useWebSearch && text) {
+        setAiStatus('🌐 Ищу в интернете...');
+        try {
+          const sr = await fetch('/api/ai/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: text })
+          });
+          const sd = await sr.json();
+          if (sd.results && sd.results.length) {
+            searchContext = '\n\n[Результаты поиска — АКТУАЛЬНЫЕ данные из интернета на сегодня, используй ИХ, а не свои внутренние знания]:\n' + sd.results.map((r,i) =>
+              `${i+1}. ${r.title}\n${r.body}\nИсточник: ${r.href}`
+            ).join('\n\n') + '\n[Конец результатов. Отвечай на основе этих данных.]\n';
+            appendAiMsg('info', '🌐 Найдено ' + sd.results.length + ' результатов');
+          }
+        } catch { appendAiMsg('info', '⚠️ Поиск недоступен'); }
+      }
+
+      // ── ЭТАП 2: формируем сообщение для основной модели ──
+      // Если была картинка — в историю уходит текстовое описание от moondream,
+      // а не сама картинка (её основная текстовая модель не понимает).
+      if (imgB64) {
+        const userText = text
+          ? `${text}\n\n[Описание прикреплённого изображения от vision-модели]: ${visionDescription}`
+          : `Пользователь прислал изображение. [Описание изображения от vision-модели]: ${visionDescription}\n\nОпиши, что на нём, и при необходимости прокомментируй.`;
+        aiHistory.push({ role: 'user', content: userText });
+      } else {
+        aiHistory.push({ role: 'user', content: searchContext ? text + searchContext : text });
+      }
+
+      const finalModel = imgB64 ? PRIMARY_MODEL : model;
+      const botId = appendAiMsg('bot', '', true);
+      setAiStatus('Думаю...');
+
       const messagesWithSystem = [{ role: 'system', content: buildSystemPrompt() }, ...aiHistory];
-      const body = { model, messages: messagesWithSystem, stream: true };
-      if (model !== 'moondream') body.options = { think: false };
+      const body = { model: finalModel, messages: messagesWithSystem, stream: true };
+      if (finalModel !== VISION_MODEL) body.options = { think: false };
 
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
@@ -2086,8 +2124,11 @@
       aiHistory.push({ role: 'assistant', content: full });
       setAiStatus('');
     } catch (e) {
-      document.getElementById(botId)?.remove();
-      aiHistory.pop();
+      // Если основная модель уже получила user-сообщение в историю, но упала
+      // на этапе ответа — откатываем, чтобы не дублировать контекст повторно.
+      if (aiHistory.length && aiHistory[aiHistory.length - 1].role === 'user') {
+        aiHistory.pop();
+      }
       appendAiMsg('error', e.message || 'Неизвестная ошибка');
       setAiStatus('');
     } finally {
