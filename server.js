@@ -629,7 +629,7 @@ print(json.dumps(results))
 });
 
 // ── AI PROXY (Ollama via tunnel) ─────────────────────
-const OLLAMA_TUNNEL = process.env.OLLAMA_TUNNEL || 'https://pvujd-83-168-88-27.free.pinggy.net';
+const OLLAMA_TUNNEL = process.env.OLLAMA_TUNNEL || 'https://mbqkf-144-31-2-69.free.pinggy.net';
 
 app.post('/api/ai/chat', async (req, res) => {
   try {
