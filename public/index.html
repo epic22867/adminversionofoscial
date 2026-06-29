@@ -1906,7 +1906,7 @@
   // ── AI CHAT (Ollama / Qwen3) ──────────────────────
   const aiHistory = [];
   let aiStreaming = false;
-  const OLLAMA_URL = 'https://d99caa47fcf45a.lhr.life';
+  const OLLAMA_URL = '';
 
   function getAiModel() {
     return document.getElementById('ai-model-select').value;
@@ -1976,7 +1976,7 @@
     setAiStatus('Qwen3 думает...');
 
     try {
-      const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+      const res = await fetch(`${OLLAMA_URL}/api/ai/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
