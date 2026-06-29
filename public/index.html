@@ -2030,9 +2030,10 @@
       let visionDescription = '';
       if (imgB64) {
         setAiStatus('👁 Анализирую изображение...');
-        const visionPrompt = text
-          ? `Опиши подробно, что изображено на картинке. Контекст вопроса пользователя: "${text}"`
-          : 'Опиши подробно и точно, что изображено на этой картинке.';
+        // moondream — маленькая модель, плохо понимает сложные/русские
+        // инструкции и склонна повторять вопрос эхом. Даём максимально
+        // простой прямой промпт на английском.
+        const visionPrompt = 'Describe this image in detail.';
 
         const visionRes = await fetch('/api/ai/chat', {
           method: 'POST',
@@ -2050,8 +2051,16 @@
         }
 
         const visionData = await visionRes.json();
-        visionDescription = (visionData.message && visionData.message.content) || '';
-        if (!visionDescription) throw new Error('Vision-модель не вернула описание изображения');
+        visionDescription = (visionData.message && visionData.message.content || '').trim();
+
+        // Если модель просто повторила промпт эхом или вернула пустоту — это
+        // сбой анализа, а не валидное описание. Не передаём такое дальше.
+        const looksLikeEcho = !visionDescription ||
+          visionDescription.toLowerCase().includes('describe this image') ||
+          visionDescription.length < 5;
+        if (looksLikeEcho) {
+          throw new Error('Vision-модель не смогла проанализировать изображение (пустой или некорректный ответ)');
+        }
 
         appendAiMsg('info', '👁 Описание изображения: ' + visionDescription);
       }
