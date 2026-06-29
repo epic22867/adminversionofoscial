@@ -619,8 +619,14 @@ app.post('/api/ai/chat', async (req, res) => {
     }
 
     res.setHeader('Content-Type', 'application/x-ndjson');
-    res.setHeader('Transfer-Encoding', 'chunked');
-    ollamaRes.body.pipe(res);
+
+    const reader = ollamaRes.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(value);
+    }
+    res.end();
   } catch (e) {
     res.status(500).json({ error: 'Ollama недоступен: ' + e.message });
   }
