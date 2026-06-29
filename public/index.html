@@ -1906,7 +1906,7 @@
   // ── AI CHAT (Ollama / Qwen3) ──────────────────────
   const aiHistory = [];
   let aiStreaming = false;
-  const OLLAMA_URL = 'https://smelting-womanless-thousand.ngrok-free.dev';
+  const OLLAMA_URL = 'https://d99caa47fcf45a.lhr.life';
 
   function getAiModel() {
     return document.getElementById('ai-model-select').value;
@@ -1978,7 +1978,7 @@
     try {
       const res = await fetch(`${OLLAMA_URL}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: getAiModel(),
           messages: aiHistory,
@@ -2018,7 +2018,7 @@
       document.getElementById(botId)?.remove();
       let msg = e.message || 'Неизвестная ошибка';
       if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-        msg = 'Не удалось подключиться к Ollama. Убедитесь, что он запущен на localhost:11434';
+        msg = 'Не удалось подключиться к Ollama через ngrok. Проверь, что ngrok запущен. Детали: ' + e.message;
       }
       appendAiMsg('error', msg);
       aiHistory.pop(); // remove the user message from history on error
