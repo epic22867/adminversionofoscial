@@ -560,12 +560,25 @@
     .ai-send-btn:disabled { opacity:.5; cursor:not-allowed; }
     .ai-status { font-size:11px; color:var(--text2); text-align:center; padding:3px 12px 6px; flex-shrink:0; min-height:18px; }
 
-    .ai-toggle { display:flex; align-items:center; gap:4px; cursor:pointer; font-size:12px; color:var(--header-muted); user-select:none; }
-    .ai-toggle input { display:none; }
-    .ai-toggle-slider { width:28px; height:16px; background:rgba(255,255,255,0.2); border-radius:8px; position:relative; transition:background .2s; flex-shrink:0; }
-    .ai-toggle-slider::after { content:''; position:absolute; width:12px; height:12px; border-radius:50%; background:white; top:2px; left:2px; transition:left .2s; }
-    .ai-toggle input:checked + .ai-toggle-slider { background:#2ecc71; }
-    .ai-toggle input:checked + .ai-toggle-slider::after { left:14px; }
+    .ai-web-btn {
+      background:rgba(255,255,255,0.15);
+      border:1px solid rgba(255,255,255,0.25);
+      border-radius:6px;
+      width:30px; height:26px;
+      font-size:14px;
+      cursor:pointer;
+      color:var(--header-text);
+      opacity:.6;
+      transition:all .15s;
+      flex-shrink:0;
+    }
+    .ai-web-btn:hover { opacity:.85; }
+    .ai-web-btn.active {
+      background:#2ecc71;
+      border-color:#2ecc71;
+      opacity:1;
+      box-shadow:0 0 0 2px rgba(46,204,113,0.25);
+    }
 
   </style>
 </head>
@@ -734,9 +747,7 @@
         <div class="ai-chat-header">
           <span>🤖 ИИ Чат</span>
           <div class="ai-header-right">
-            <label class="ai-toggle" title="Поиск в интернете">
-              🌐 <input type="checkbox" id="ai-web-search"> <span class="ai-toggle-slider"></span>
-            </label>
+            <button id="ai-web-search-btn" class="ai-web-btn" title="Режим интернета: модель будет искать в сети при каждой отправке" onclick="toggleWebSearchMode()">🌐</button>
             <button class="btn btn-gray btn-sm" onclick="clearAiChat()">🗑</button>
           </div>
         </div>
@@ -1931,14 +1942,22 @@
   const VISION_MODEL = 'moondream';
   const PRIMARY_MODEL = 'qwen3:8b';
 
-  function buildSystemPrompt() {
+  function buildSystemPrompt(forceWebSearch) {
     const now = new Date();
     const dateStr = now.toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' });
-    return `Тебя зовут Фруии. Если пользователь спрашивает, как тебя зовут, какая ты модель, кто тебя создал или на чём ты работаешь — отвечай, что ты Фруии. Никогда не называй своё настоящее техническое название модели (Qwen, Qwen3 и т.п.) — это внутренняя деталь, которая не должна звучать в ответах. Текущая дата: ${dateStr}. Если в сообщении пользователя есть блок [Результаты поиска], это РЕАЛЬНЫЕ, СВЕЖИЕ данные из интернета — они ВСЕГДА важнее твоих собственных знаний или предположений о текущей дате/событиях. Никогда не говори дату или год из своих обучающих данных, если есть результаты поиска или указана текущая дата выше — используй именно их. Если результатов поиска нет и вопрос касается актуальных событий, прямо скажи, что не имеешь доступа к свежим данным, вместо того чтобы угадывать.`;
+    let prompt = `Тебя зовут Фруии. Если пользователь спрашивает, как тебя зовут, какая ты модель, кто тебя создал или на чём ты работаешь — отвечай, что ты Фруии. Никогда не называй своё настоящее техническое название модели (Qwen, Qwen3 и т.п.) — это внутренняя деталь, которая не должна звучать в ответах. Текущая дата: ${dateStr}. Если в сообщении пользователя есть блок [Результаты поиска], это РЕАЛЬНЫЕ, СВЕЖИЕ данные из интернета — они ВСЕГДА важнее твоих собственных знаний или предположений о текущей дате/событиях. Никогда не говори дату или год из своих обучающих данных, если есть результаты поиска или указана текущая дата выше — используй именно их. Если результатов поиска нет и вопрос касается актуальных событий, прямо скажи, что не имеешь доступа к свежим данным, вместо того чтобы угадывать.`;
+    if (forceWebSearch) {
+      prompt += ` РЕЖИМ ИНТЕРНЕТА ВКЛЮЧЁН ПОЛЬЗОВАТЕЛЕМ ПРИНУДИТЕЛЬНО: поиск в интернете был выполнен специально для этого сообщения, независимо от того, нужен он тебе или нет с твоей точки зрения. Блок [Результаты поиска] ниже — обязательная часть контекста. Ты ДОЛЖЕН использовать эти данные в ответе и явно опираться на них, даже если вопрос кажется тебе простым, общим или не требующим поиска. Не игнорируй и не обесценивай эти результаты.`;
+    }
+    return prompt;
   }
 
   function getAiModel() { return PRIMARY_MODEL; }
-  function isWebSearchOn() { return document.getElementById('ai-web-search').checked; }
+  let webSearchMode = false;
+  function toggleWebSearchMode() {
+    webSearchMode = !webSearchMode;
+    document.getElementById('ai-web-search-btn').classList.toggle('active', webSearchMode);
+  }
   function aiUserInit() { return me ? me.username[0].toUpperCase() : '?'; }
 
   function appendAiMsg(role, text, streaming) {
@@ -2045,7 +2064,7 @@
     aiStreaming = true;
 
     const model = getAiModel();
-    const useWebSearch = isWebSearchOn() && !aiImageBase64;
+    const useWebSearch = webSearchMode && !aiImageBase64;
     const imgThumbSrc = document.getElementById('ai-img-thumb').src;
     const imgB64 = aiImageBase64;
 
@@ -2130,7 +2149,7 @@
       const botId = appendAiMsg('bot', '', true);
       setAiStatus('Думаю...');
 
-      const messagesWithSystem = [{ role: 'system', content: buildSystemPrompt() }, ...aiHistory];
+      const messagesWithSystem = [{ role: 'system', content: buildSystemPrompt(!!searchContext) }, ...aiHistory];
       const body = { model: finalModel, messages: messagesWithSystem, stream: true };
       if (finalModel !== VISION_MODEL) body.options = { think: false };
 
