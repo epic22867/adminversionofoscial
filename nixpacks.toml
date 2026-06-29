@@ -1,0 +1,19 @@
+# https://nixpacks.com/docs/configuration/file
+#
+# Добавляет Python (для /api/ai/search в server.js, который вызывает
+# `python3 -c ...` с импортом duckduckgo_search) к стандартному Node.js
+# окружению, которое Nixpacks определяет автоматически по package.json.
+#
+# "..." сохраняет автоопределённые провайдеры/пакеты (node) и просто
+# добавляет к ним python.
+providers = ['...', 'python']
+
+[phases.setup]
+nixPkgs = ['...', 'python311', 'python311Packages.pip']
+
+# Устанавливаем duckduckgo_search в системный python после того, как сам
+# python и pip уже доступны (фаза setup). --break-system-packages нужен,
+# так как современные Debian/Ubuntu по умолчанию блокируют pip install
+# вне virtualenv (PEP 668); если флаг не поддерживается — пробуем без него.
+[phases.install]
+cmds = ['...', 'pip install --break-system-packages duckduckgo_search || pip install duckduckgo_search']
