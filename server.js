@@ -5,6 +5,9 @@ const session = require('express-session');
 const path = require('path');
 const multer = require('multer');
 
+// fetch is built-in since Node 18; polyfill for older versions
+const fetch = globalThis.fetch || require('node-fetch');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -144,14 +147,6 @@ app.use(session({
   cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 },
 }));
 
-// ── КПК-ДЕТЕКЦИЯ ─────────────────────────────────────
-const PDA_UA = /Opera Mini|Opera Mobi|Windows CE|PocketPC|Pocket PC|Palm|Symbian|MIDP|J2ME|NetFront|UP\.Browser|DoCoMo|KDDI|Blazer|Xiino|Series60|Series40|SonyEricsson|Nokia|IEMobile|WPDesktop/i;
-
-app.use((req, res, next) => {
-  req.isPDA = PDA_UA.test(req.headers['user-agent'] || '');
-  next();
-});
-
 const ADMIN_USERNAME = 'FokzBurmalda';
 
 async function isAdmin(userId) {
@@ -165,13 +160,6 @@ function requireAuth(req, res, next) {
 }
 
 app.get('/api/status', (req, res) => res.json({ ok: true, uptime: process.uptime() }));
-
-// Отладка: открой /ua с КПК — покажет User-Agent в виде HTML
-app.get('/ua', (req, res) => {
-  const ua = req.headers['user-agent'] || '(пусто)';
-  res.set('Content-Type', 'text/html; charset=utf-8');
-  res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>UA</title></head><body><h2>User-Agent:</h2><p style="word-break:break-all;font-size:14px">${ua}</p><hr/><p>isPDA: <b>${req.isPDA}</b></p></body></html>`);
-});
 
 // ── AUTH ─────────────────────────────────────────────
 app.post('/api/register', async (req, res) => {
@@ -222,7 +210,7 @@ app.get('/api/avatar/:id', async (req, res) => {
   );
   if (!rows[0] || !rows[0].avatar_data) return res.status(404).end();
   res.set('Content-Type', rows[0].avatar_mime);
-  res.set('Cache-Control', 'public, max-age=31536000');
+  res.set('Cache-Control', 'no-cache');
   res.send(rows[0].avatar_data);
 });
 
@@ -614,21 +602,30 @@ app.delete('/api/tracks/:id', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-const fs = require('fs');
+// ── AI PROXY (Ollama) ────────────────────────────────
+app.post('/api/ai/chat', async (req, res) => {
+  try {
+    const ollamaRes = await fetch('http://localhost:11434/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+    });
 
-app.get('*', (req, res) => {
-  const filePath = path.join(__dirname, 'public', 'index.html');
-  if (!req.isPDA) return res.sendFile(filePath);
-  // Для КПК — подставляем класс pda на <body>
-  fs.readFile(filePath, 'utf8', (err, html) => {
-    if (err) return res.status(500).send('Server error');
-    const patched = html.replace('<body>', '<body class="pda">');
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-    res.set('Pragma', 'no-cache');
-    res.send(patched);
-  });
+    if (!ollamaRes.ok) {
+      const text = await ollamaRes.text();
+      return res.status(ollamaRes.status).json({ error: text });
+    }
+
+    // Stream the response straight through to the client
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    ollamaRes.body.pipe(res);
+  } catch (e) {
+    res.status(500).json({ error: 'Ollama недоступен: ' + e.message });
+  }
 });
+
+app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 initDB().then(() => {
   app.listen(PORT, () => console.log(`🚀 http://localhost:${PORT}`));
