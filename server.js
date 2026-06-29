@@ -602,10 +602,12 @@ app.delete('/api/tracks/:id', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ── AI PROXY (Ollama) ────────────────────────────────
+// ── AI PROXY (Ollama via tunnel) ─────────────────────
+const OLLAMA_TUNNEL = process.env.OLLAMA_TUNNEL || 'https://d99caa47fcf45a.lhr.life';
+
 app.post('/api/ai/chat', async (req, res) => {
   try {
-    const ollamaRes = await fetch('http://localhost:11434/api/chat', {
+    const ollamaRes = await fetch(`${OLLAMA_TUNNEL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req.body),
@@ -616,7 +618,6 @@ app.post('/api/ai/chat', async (req, res) => {
       return res.status(ollamaRes.status).json({ error: text });
     }
 
-    // Stream the response straight through to the client
     res.setHeader('Content-Type', 'application/x-ndjson');
     res.setHeader('Transfer-Encoding', 'chunked');
     ollamaRes.body.pipe(res);
