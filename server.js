@@ -138,7 +138,9 @@ async function initDB() {
   console.log('✅ Таблицы готовы');
 }
 
-app.use(express.json());
+// Лимит увеличен с дефолтных 100kb — фото с телефонов в base64 (через
+// /api/ai/chat для vision-модели) легко весят несколько мегабайт.
+app.use(express.json({ limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
