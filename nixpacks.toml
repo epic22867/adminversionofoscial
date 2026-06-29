@@ -4,9 +4,9 @@
 # `python3 -c ...` с импортом duckduckgo_search) к стандартному Node.js
 # окружению, которое Nixpacks определяет автоматически по package.json.
 #
-# "..." сохраняет автоопределённые провайдеры/пакеты (node) и просто
-# добавляет к ним python.
-providers = ['...', 'python']
+# Используем ТОЛЬКО явный nixPkgs (python311), без provider 'python' —
+# одновременное указание provider'а и явного пакета вызывает конфликт
+# Nix-профиля (оба пытаются установить файл python3.1.gz man-страницы).
 
 [phases.setup]
 nixPkgs = ['...', 'python311', 'python311Packages.pip']
