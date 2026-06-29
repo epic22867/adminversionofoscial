@@ -4,7 +4,6 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>Aero Socialite</title>
-  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/public/icon.png"/>
   <style>
     :root {
       --bg: #e7e9ec;
@@ -98,10 +97,6 @@
     #header nav button { background:none; border:none; color:var(--header-muted); font-size:13px; cursor:pointer; padding:6px 10px; border-radius:4px; }
     #header nav button:hover, #header nav button.active { background:var(--header2); color:var(--header-text); }
     #header .user-name { color:var(--header-text); font-size:13px; }
-
-    /* ICONS */
-    .icon-img { width:14px; height:14px; vertical-align:-2px; object-fit:contain; }
-    .bn-icon .icon-img { width:18px; height:18px; vertical-align:-3px; }
 
     /* LAYOUT */
     #layout { max-width:990px; margin:16px auto; display:flex; gap:10px; padding:0 10px; }
@@ -215,6 +210,39 @@
     .auth-err { color:#c0392b; font-size:12px; margin-bottom:8px; min-height:16px; }
     .auth-switch { text-align:center; margin-top:10px; font-size:12px; color:#888; }
     .auth-switch a { color:#4a76a8; cursor:pointer; text-decoration:underline; }
+    .auth-divider { display:flex; align-items:center; gap:8px; margin:14px 0 12px; color:#bbb; font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+    .auth-divider::before, .auth-divider::after { content:''; flex:1; height:1px; background:#e0e4e8; }
+    #guest-enter-btn { width:100%; }
+    .guest-hint { margin-top:8px; font-size:11.5px; color:var(--text2); text-align:center; line-height:1.4; }
+    .auth-disclaimer { font-size:11.5px; color:#a85b00; background:#fff4e0; border:1px solid #f0d8a8; border-radius:4px; padding:7px 10px; text-align:center; line-height:1.4; margin-bottom:14px; }
+
+    /* GUEST MODE */
+    #guest-banner { display:none; position:sticky; top:44px; z-index:99; background:#f5a623; color:#3a2e10; font-size:12.5px; font-weight:bold; padding:7px 14px; text-align:center; align-items:center; justify-content:center; gap:10px; }
+    #guest-banner button { background:#3a2e10; color:#fff; border:none; padding:4px 12px; border-radius:3px; font-size:12px; font-weight:bold; cursor:pointer; }
+    #guest-banner button:hover { opacity:.85; }
+    body.guest-mode #guest-banner { display:flex; }
+    /* Visual cue: action controls look disabled while still being read/scrolled */
+    body.guest-mode .post-action,
+    body.guest-mode .write-footer button,
+    body.guest-mode .comment-submit,
+    body.guest-mode .settings-section button,
+    body.guest-mode .avatar-upload-wrap button { opacity:.5; cursor:not-allowed; }
+    body.guest-mode .write-block textarea,
+    body.guest-mode .write-block input,
+    body.guest-mode .comment-input,
+    body.guest-mode #bio-input,
+    body.guest-mode .settings-section input,
+    body.guest-mode .settings-section textarea { cursor:not-allowed; background:var(--side-link); }
+    body.guest-mode #write-block { opacity:.6; position:relative; }
+    body.guest-mode #write-block::after {
+      content:'Войдите, чтобы публиковать записи'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      font-weight:bold; color:var(--text2); font-size:12px; pointer-events:none;
+    }
+    body.guest-mode #music-upload-card { opacity:.6; position:relative; cursor:not-allowed; }
+    body.guest-mode #music-upload-card::after {
+      content:'Войдите, чтобы загружать музыку'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      font-weight:bold; color:var(--text2); font-size:12px; pointer-events:none; background:var(--card);
+    }
 
     .empty { text-align:center; padding:30px; color:var(--text2); background:var(--card); border-radius:4px; border:1px solid var(--border); }
     #toast { position:fixed; bottom:20px; right:20px; background:#2ecc71; color:white; padding:10px 16px; border-radius:4px; font-size:13px; display:none; z-index:9999; }
@@ -492,6 +520,25 @@
 
     #music-search-bar { margin-bottom:8px; }
 
+    /* ── PROFILE MUSIC SECTION ───────────────────────── */
+    .profile-music-section { background:var(--card); border-radius:4px; border:1px solid var(--border); margin-top:10px; overflow:hidden; }
+    .profile-music-header { background:var(--header); color:var(--header-text); padding:8px 14px; font-size:13px; font-weight:bold; display:flex; align-items:center; gap:8px; }
+    .profile-music-list { padding:6px 0; }
+    .profile-track-card { display:flex; align-items:center; gap:10px; padding:8px 14px; cursor:pointer; border-bottom:1px solid var(--border); transition:background .1s; }
+    .profile-track-card:last-child { border-bottom:none; }
+    .profile-track-card:hover { background:var(--side-link); }
+    .profile-track-card.playing { background:rgba(74,118,168,0.10); }
+    .profile-track-card.playing .profile-track-title { color:#4a76a8; }
+    .profile-track-cover { width:38px; height:38px; border-radius:5px; background:linear-gradient(135deg,#4a76a8,#3d6690); display:flex; align-items:center; justify-content:center; font-size:16px; overflow:hidden; flex-shrink:0; }
+    .profile-track-cover img { width:100%; height:100%; object-fit:cover; }
+    .profile-track-info { flex:1; min-width:0; }
+    .profile-track-title { font-size:13px; font-weight:bold; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .profile-track-artist { font-size:12px; color:var(--text2); margin-top:1px; }
+    .profile-track-actions { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+    .profile-track-play-icon { font-size:18px; color:var(--text2); }
+    .profile-track-card:hover .profile-track-play-icon { color:#4a76a8; }
+    .profile-music-empty { padding:18px 14px; color:var(--text2); font-size:13px; text-align:center; }
+
     @media (max-width:768px) {
       .music-player { grid-template-columns:44px 1fr; grid-template-rows:auto auto auto; bottom:70px; }
       .mp-cover { grid-row:1/3; }
@@ -507,10 +554,8 @@
 
 <div id="auth-overlay">
   <div id="auth-box">
-    <div style="text-align:center;margin-bottom:14px;">
-      <img src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/public/icon.png" alt="Aero Socialite" style="width:64px;height:64px;border-radius:12px;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.15);"/>
-    </div>
     <h2 id="auth-title">Вход в Aero Socialite</h2>
+    <div class="auth-disclaimer">Данная соц-сеть не является Vk.com/ВК. Не вводите здесь свои личные данные</div>
     <div class="auth-err" id="auth-err"></div>
     <input id="auth-user" placeholder="Имя пользователя"/>
     <input id="auth-pass" type="password" placeholder="Пароль"/>
@@ -519,27 +564,34 @@
       <span id="auth-switch-text">Нет аккаунта?</span>
       <a onclick="toggleAuth()">Зарегистрироваться</a>
     </div>
+    <div class="auth-divider">или</div>
+    <button id="guest-enter-btn" class="btn btn-gray" onclick="enterGuestMode()">👁️ Смотреть как гость</button>
+    <div class="guest-hint">С режимом гостя вам будет доступен просмотр информации на сайте, но вы сами же не сможете выкладывать свой контент</div>
   </div>
 </div>
 
 <div id="header">
   <div class="logo" style="display:flex;align-items:center;gap:7px;">
-    <img src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/public/icon.png" alt="icon" style="width:28px;height:28px;border-radius:4px;object-fit:cover;flex-shrink:0;"/>
     Aero Socialite
   </div>
   <div class="search-wrap"><input placeholder="Поиск"/></div>
   <nav>
     <button id="tab-btn-news" class="active" onclick="setTab('news')">Новости</button>
     <button id="tab-btn-my" onclick="setTab('my')">Мои записи</button>
-    <button id="tab-btn-music" onclick="setTab('music')"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/> Музыка</button>
+    <button id="tab-btn-music" onclick="setTab('music')">🎵 Музыка</button>
     <button id="tab-btn-notifications" onclick="setTab('notifications')" style="position:relative">
-      <img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/bell.png" alt=""/> <span id="notif-badge" style="display:none;position:absolute;top:2px;right:2px;background:#e74c3c;color:white;border-radius:50%;width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;font-weight:bold"></span>
+      🔔 <span id="notif-badge" style="display:none;position:absolute;top:2px;right:2px;background:#e74c3c;color:white;border-radius:50%;width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;font-weight:bold"></span>
     </button>
     <button id="tab-btn-profile" onclick="setTab('profile')">Профиль</button>
     <button id="tab-btn-settings" onclick="setTab('settings')">Настройки</button>
   </nav>
   <span class="user-name" id="hdr-name"></span>
-  <button class="btn btn-gray btn-sm" onclick="logout()">Выйти</button>
+  <button class="btn btn-gray btn-sm" id="hdr-logout-btn" onclick="logout()">Выйти</button>
+</div>
+
+<div id="guest-banner">
+  👁️ Вы просматриваете сайт в режиме гостя — действия недоступны
+  <button onclick="exitGuestMode()">Войти / Зарегистрироваться</button>
 </div>
 
 <div id="layout">
@@ -551,12 +603,12 @@
     </div>
     <div class="side-block">
       <div class="side-header">Меню</div>
-      <a id="sl-news" class="active" onclick="setTab('news')"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/news.png" alt=""/> Новости</a>
-      <a id="sl-my" onclick="setTab('my')"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/change.png" alt=""/> Мои записи</a>
-      <a id="sl-music" onclick="setTab('music')"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/> Музыка</a>
-      <a id="sl-notifications" onclick="setTab('notifications')"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/bell.png" alt=""/> Уведомления <span id="sb-notif-count" style="display:none;background:#e74c3c;color:white;border-radius:10px;padding:0 5px;font-size:11px;margin-left:4px"></span></a>
-      <a id="sl-profile" onclick="setTab('profile')"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/profile.png" alt=""/> Мой профиль</a>
-      <a id="sl-settings" onclick="setTab('settings')"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/settings.png" alt=""/> Настройки</a>
+      <a id="sl-news" class="active" onclick="setTab('news')">📰 Новости</a>
+      <a id="sl-my" onclick="setTab('my')">✏️ Мои записи</a>
+      <a id="sl-music" onclick="setTab('music')">🎵 Музыка</a>
+      <a id="sl-notifications" onclick="setTab('notifications')">🔔 Уведомления <span id="sb-notif-count" style="display:none;background:#e74c3c;color:white;border-radius:10px;padding:0 5px;font-size:11px;margin-left:4px"></span></a>
+      <a id="sl-profile" onclick="setTab('profile')">👤 Мой профиль</a>
+      <a id="sl-settings" onclick="setTab('settings')">⚙️ Настройки</a>
     </div>
   </div>
 
@@ -581,7 +633,7 @@
 
     <div id="settings-panel" style="display:none">
       <div class="settings-block">
-        <h3><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/settings.png" alt=""/> Настройки</h3>
+        <h3>⚙️ Настройки</h3>
 
         <div class="settings-section">
           <h4>Аватар</h4>
@@ -635,12 +687,16 @@
           </div>
         </div>
       </div>
+      <div class="profile-music-section" id="profile-music-section" style="display:none">
+        <div class="profile-music-header">🎵 Музыка</div>
+        <div class="profile-music-list" id="profile-music-list"></div>
+      </div>
     </div>
 
     <div id="notifications-panel" style="display:none">
       <div class="settings-block">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <h3 style="margin:0"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/bell.png" alt=""/> Уведомления</h3>
+          <h3 style="margin:0">🔔 Уведомления</h3>
           <button class="btn btn-gray btn-sm" onclick="markAllRead()">Отметить все как прочитанные</button>
         </div>
         <div id="notifications-list"><div style="color:var(--text2);text-align:center;padding:20px">Загрузка...</div></div>
@@ -651,7 +707,7 @@
       <!-- Upload form -->
       <div class="music-upload-card" id="music-upload-card">
         <div class="music-upload-header" onclick="toggleMusicUpload()">
-          <span><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/> Загрузить трек</span>
+          <span>🎵 Загрузить трек</span>
           <span id="music-upload-arrow">▾</span>
         </div>
         <div class="music-upload-body" id="music-upload-body" style="display:none">
@@ -665,15 +721,15 @@
             <div style="flex:1;display:flex;flex-direction:column;gap:8px">
               <input type="text" id="music-title-input" class="music-text-input" placeholder="Название трека"/>
               <input type="text" id="music-artist-input" class="music-text-input" placeholder="Исполнитель"/>
-              <input type="file" id="music-cover-input" accept=".jpg,.jpeg,.png,.webp,.gif" style="display:none" onchange="previewMusicCover(this)"/>
+              <input type="file" id="music-cover-input" accept=".jpg,.jpeg,.png,.webp,.gif" style="display:none" onchange="previewMusicCover(this)" onclick="event.stopPropagation()"/>
             </div>
           </div>
           <div class="music-audio-pick" id="music-audio-pick" onclick="document.getElementById('music-audio-input').click()">
-            <span id="music-audio-label"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/> Выбрать аудиофайл (MP3, OGG, WAV, FLAC…)</span>
+            <span id="music-audio-label">🎵 Выбрать аудиофайл (MP3, OGG, WAV, FLAC…)</span>
           </div>
           <input type="file" id="music-audio-input" accept="audio/*" style="display:none" onchange="onMusicAudioPick(this)"/>
           <div style="margin-top:10px;display:flex;justify-content:flex-end">
-            <button class="btn btn-blue" onclick="uploadTrack()">Опубликовать</button>
+            <button class="btn btn-blue" onclick="uploadTrack(this)">Опубликовать</button>
           </div>
         </div>
       </div>
@@ -693,7 +749,7 @@
 <!-- Global floating music player (persists across all tabs) -->
 <div class="music-player" id="music-player" style="display:none">
   <div class="mp-drag-handle"></div>
-  <div class="mp-cover" id="mp-cover"><img class="icon-img" style="width:20px;height:20px" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/></div>
+  <div class="mp-cover" id="mp-cover">🎵</div>
   <div class="mp-info">
     <div class="mp-title" id="mp-title">—</div>
     <div class="mp-artist" id="mp-artist">—</div>
@@ -717,24 +773,24 @@
 <!-- Mobile bottom navigation -->
 <nav id="bottom-nav">
   <button id="bn-news" class="active" onclick="setTab('news')">
-    <span class="bn-icon"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/news.png" alt=""/></span>
+    <span class="bn-icon">📰</span>
     <span class="bn-label">Новости</span>
   </button>
   <button id="bn-music" onclick="setTab('music')">
-    <span class="bn-icon"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/></span>
+    <span class="bn-icon">🎵</span>
     <span class="bn-label">Музыка</span>
   </button>
   <button id="bn-notifications" onclick="setTab('notifications')">
-    <span class="bn-icon"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/bell.png" alt=""/></span>
+    <span class="bn-icon">🔔</span>
     <span class="bn-label">Уведомления</span>
     <span class="bn-badge" id="bn-notif-badge" style="display:none"></span>
   </button>
   <button id="bn-profile" onclick="setTab('profile')">
-    <span class="bn-icon"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/profile.png" alt=""/></span>
+    <span class="bn-icon">👤</span>
     <span class="bn-label">Профиль</span>
   </button>
   <button id="bn-settings" onclick="setTab('settings')">
-    <span class="bn-icon"><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/settings.png" alt=""/></span>
+    <span class="bn-icon">⚙️</span>
     <span class="bn-label">Настройки</span>
   </button>
 </nav>
@@ -745,6 +801,7 @@
   let me = null;
   let postPendingAttachments = []; // [{url,name,mime}]
   let amAdmin = false;
+  let isGuest = false;
 
   async function checkAdmin() {
     const r = await api('GET', '/api/is-admin');
@@ -752,6 +809,10 @@
   }
 
   async function api(method, url, body) {
+    if (isGuest && method !== 'GET') {
+      toast('Войдите, чтобы выполнить это действие', '#e74c3c');
+      return { error: 'guest_mode' };
+    }
     const r = await fetch(url, {
       method,
       headers: {'Content-Type':'application/json'},
@@ -832,6 +893,66 @@
     document.getElementById('auth-overlay').style.display = 'flex';
     document.getElementById('posts-list').innerHTML = '';
   }
+
+  // ── GUEST MODE ────────────────────────────────────
+  function enterGuestMode() {
+    isGuest = true;
+    me = null;
+    document.body.classList.add('guest-mode');
+    document.getElementById('auth-overlay').style.display = 'none';
+    document.getElementById('hdr-name').textContent = 'Гость';
+    document.getElementById('hdr-logout-btn').textContent = 'Войти';
+    document.getElementById('hdr-logout-btn').setAttribute('onclick', 'exitGuestMode()');
+    document.getElementById('sb-name').textContent = 'Гость';
+    document.getElementById('sb-bio').textContent = 'режим просмотра';
+    const sbAv = document.getElementById('sb-avatar');
+    if (sbAv) sbAv.textContent = '👁️';
+    loadPosts();
+    toast('Вы в режиме гостя — только просмотр', '#f5a623');
+  }
+
+  function exitGuestMode() {
+    isGuest = false;
+    document.body.classList.remove('guest-mode');
+    document.getElementById('auth-overlay').style.display = 'flex';
+    document.getElementById('hdr-logout-btn').textContent = 'Выйти';
+    document.getElementById('hdr-logout-btn').setAttribute('onclick', 'logout()');
+    document.getElementById('posts-list').innerHTML = '';
+  }
+
+  // Guard against all write-interactions in guest mode, even on dynamically
+  // rendered elements (posts, comments, tracks, etc.) added after the fact.
+  const GUEST_BLOCK_SELECTOR = [
+    '.post-action', '.write-block textarea', '.write-block input', '.write-footer button',
+    '#bio-input', '.avatar-upload-wrap input', '.avatar-upload-wrap button',
+    '.settings-section button', '.settings-section input', '.settings-section textarea',
+    '.comment-input', '.comment-submit', 'input[type=file]', '.track-upload',
+    '.like-btn', '.mp-like-btn', '[onclick*="likeTrack"]', '[onclick*="deleteTrack"]',
+    '[onclick*="likePost"]', '[onclick*="deletePost"]', '[onclick*="editPost"]',
+    '[onclick*="submitComment"]', '[onclick*="addComment"]', '[onclick*="uploadAvatar"]',
+    '[onclick*="saveBio"]', '[onclick*="saveSettings"]', '[onclick*="submitPost"]',
+    '#music-upload-card', '[onclick*="toggleMusicUpload"]', '[onclick*="uploadTrack"]',
+    '[onclick*="onMusicAudioPick"]', '[onclick*="previewMusicCover"]', '#music-cover-pick',
+    '#music-audio-pick'
+  ].join(',');
+
+  document.addEventListener('click', function(e) {
+    if (!isGuest) return;
+    const blocked = e.target.closest(GUEST_BLOCK_SELECTOR);
+    if (blocked) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      toast('Войдите, чтобы выполнить это действие', '#e74c3c');
+    }
+  }, true);
+
+  document.addEventListener('focusin', function(e) {
+    if (!isGuest) return;
+    if (e.target.closest(GUEST_BLOCK_SELECTOR)) {
+      e.target.blur();
+    }
+  }, true);
 
   // ── TABS ──────────────────────────────────────────
   function setTab(tab) {
@@ -1279,7 +1400,7 @@
     list.innerHTML = '<div style="color:var(--text2);text-align:center;padding:20px">Загрузка...</div>';
     const notifs = await api('GET', '/api/notifications');
     if (!notifs.length) {
-      list.innerHTML = '<div class="notif-empty">У вас пока нет уведомлений <img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/bell.png" alt=""/></div>';
+      list.innerHTML = '<div class="notif-empty">У вас пока нет уведомлений 🔔</div>';
       return;
     }
     list.innerHTML = notifs.map(n => {
@@ -1330,9 +1451,10 @@
     const r = await fetch('/api/profile/avatar', { method: 'POST', body: fd });
     const data = await r.json();
     if (data.error) { toast(data.error, '#e74c3c'); return; }
-    me.avatar = data.url;
+    me.avatar = data.url + '?t=' + Date.now();
     renderAvatar(document.getElementById('sb-avatar'), me);
     renderAvatar(document.getElementById('settings-av-preview'), me);
+    renderAvatar(document.getElementById('profile-big-av'), me);
     input.value = '';
     toast('Аватар обновлён!');
   }
@@ -1346,10 +1468,11 @@
   }
 
   async function loadProfile(userId) {
-    if (!me) return;
-    const targetId = userId || me.id;
+    if (!me && !isGuest) return;
+    const targetId = userId || (me ? me.id : null);
+    if (!targetId) return;
     const user = await api('GET', `/api/profile/${targetId}`);
-    if (!userId) {
+    if (!userId && me) {
       me.bio = user.bio;
       me.avatar = user.avatar;
     }
@@ -1365,7 +1488,50 @@
     document.getElementById('profile-joined').textContent = `📅 На сайте с ${joined}`;
     // Show/hide edit controls: only visible when viewing own profile
     const editControls = document.getElementById('profile-edit-hint');
-    if (editControls) editControls.style.display = (targetId === me.id) ? 'block' : 'none';
+    if (editControls) editControls.style.display = (me && targetId === me.id) ? 'block' : 'none';
+
+    // Load user's tracks for the profile music section
+    await loadProfileTracks(targetId);
+  }
+
+  async function loadProfileTracks(userId) {
+    const section = document.getElementById('profile-music-section');
+    const list = document.getElementById('profile-music-list');
+    try {
+      // Fetch all tracks and filter by this user
+      const tracks = await api('GET', '/api/tracks');
+      const userTracks = tracks.filter(t => t.user_id === userId);
+      if (!userTracks.length) {
+        section.style.display = 'none';
+        return;
+      }
+      section.style.display = 'block';
+      list.innerHTML = userTracks.map(t => {
+        const idx = allTracks.findIndex(x => x.id === t.id);
+        // If allTracks not loaded yet (e.g. user never opened Music tab), inject them
+        if (idx === -1) {
+          allTracks.push(t);
+        }
+        const realIdx = allTracks.findIndex(x => x.id === t.id);
+        const coverHtml = t.cover ? `<img src="${t.cover}" alt="cover"/>` : '🎵';
+        const likes = parseInt(t.likes_count) || 0;
+        const plays = parseInt(t.plays) || 0;
+        return `<div class="profile-track-card" id="profile-track-card-${t.id}" onclick="playTrack(${realIdx})">
+          <div class="profile-track-cover">${coverHtml}</div>
+          <div class="profile-track-info">
+            <div class="profile-track-title">${t.title}</div>
+            <div class="profile-track-artist">${t.artist}</div>
+          </div>
+          <div class="profile-track-actions">
+            ${plays > 0 ? `<span style="font-size:11px;color:var(--text2)">▶ ${plays}</span>` : ''}
+            ${likes > 0 ? `<span style="font-size:11px;color:var(--text2)">❤ ${likes}</span>` : ''}
+            <span class="profile-track-play-icon">▶</span>
+          </div>
+        </div>`;
+      }).join('');
+    } catch(e) {
+      section.style.display = 'none';
+    }
   }
 
   async function openUserProfile(userId) {
@@ -1416,10 +1582,10 @@
 
   function onMusicAudioPick(input) {
     if (!input.files.length) return;
-    document.getElementById('music-audio-label').innerHTML = '<img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/> ' + input.files[0].name;
+    document.getElementById('music-audio-label').textContent = '🎵 ' + input.files[0].name;
   }
 
-  async function uploadTrack() {
+  async function uploadTrack(btn) {
     const title = document.getElementById('music-title-input').value.trim();
     const artist = document.getElementById('music-artist-input').value.trim();
     const audioInput = document.getElementById('music-audio-input');
@@ -1432,7 +1598,6 @@
     fd.append('artist', artist);
     fd.append('audio', audioInput.files[0]);
     if (coverInput.files.length) fd.append('cover', coverInput.files[0]);
-    const btn = event.target;
     btn.disabled = true; btn.textContent = 'Загрузка...';
     const r = await fetch('/api/tracks', { method:'POST', body:fd });
     const data = await r.json();
@@ -1441,10 +1606,10 @@
     document.getElementById('music-title-input').value = '';
     document.getElementById('music-artist-input').value = '';
     audioInput.value = ''; coverInput.value = '';
-    document.getElementById('music-audio-label').innerHTML = '<img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/> Выбрать аудиофайл (MP3, OGG, WAV, FLAC…)';
+    document.getElementById('music-audio-label').textContent = '🎵 Выбрать аудиофайл (MP3, OGG, WAV, FLAC…)';
     document.getElementById('music-cover-preview-wrap').innerHTML = '<span style="font-size:32px">🖼</span><div style="font-size:12px;color:var(--text2);margin-top:6px">Обложка</div>';
     toggleMusicUpload();
-    toast('Трек опубликован!');
+    toast('Трек опубликован! 🎵');
     await loadTracks();
   }
 
@@ -1462,14 +1627,14 @@
   function renderTrackList(tracks) {
     const list = document.getElementById('tracks-list');
     if (!tracks.length) {
-      list.innerHTML = '<div class="empty">Треков пока нет. Будьте первым! <img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/></div>';
+      list.innerHTML = '<div class="empty">Треков пока нет. Будьте первым! 🎵</div>';
       return;
     }
     list.innerHTML = tracks.map((t, i) => {
       const idx = allTracks.findIndex(x => x.id === t.id);
       const coverHtml = t.cover
         ? `<img src="${t.cover}" alt="cover"/>`
-        : '<img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/>';
+        : '🎵';
       const liked = parseInt(t.user_liked) > 0;
       const likes = parseInt(t.likes_count) || 0;
       const plays = parseInt(t.plays) || 0;
@@ -1480,7 +1645,7 @@
           <div class="track-title">${t.title}</div>
           <div class="track-artist">${t.artist}</div>
           <div class="track-meta">
-            <span><img class="icon-img" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/profile.png" alt=""/> ${t.username}</span>
+            <span>👤 ${t.username}</span>
             <span>▶ ${plays}</span>
           </div>
         </div>
@@ -1504,12 +1669,16 @@
     document.getElementById('mp-title').textContent = t.title;
     document.getElementById('mp-artist').textContent = t.artist;
     const mpCover = document.getElementById('mp-cover');
-    mpCover.innerHTML = t.cover ? `<img src="${t.cover}" alt="cover"/>` : '<img class="icon-img" style="width:20px;height:20px" src="https://raw.githubusercontent.com/epic22867/PelmenPodval/main/icons/music.png" alt=""/>';
+    mpCover.innerHTML = t.cover ? `<img src="${t.cover}" alt="cover"/>` : '🎵';
     document.getElementById('music-player').style.display = 'grid';
     // Highlight playing card
     document.querySelectorAll('.track-card').forEach(c => c.classList.remove('playing'));
     const card = document.getElementById('track-card-' + t.id);
     if (card) card.classList.add('playing');
+    // Highlight profile page track cards too
+    document.querySelectorAll('.profile-track-card').forEach(c => c.classList.remove('playing'));
+    const pcard = document.getElementById('profile-track-card-' + t.id);
+    if (pcard) pcard.classList.add('playing');
   }
 
   function togglePlay() {
@@ -1660,7 +1829,10 @@
   setTheme(savedTheme);
 
   api('GET', '/api/me').then(data => {
-    if (data && data.id) { me = data; onLogin(); }
+    if (data && data.id) {
+      if (data.avatar) data.avatar = data.avatar + '?t=' + Date.now();
+      me = data; onLogin();
+    }
   });
 </script>
 </body>
