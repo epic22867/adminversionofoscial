@@ -1,639 +1,2116 @@
-const express = require('express');
-const { Pool } = require('pg');
-const bcrypt = require('bcryptjs');
-const session = require('express-session');
-const path = require('path');
-const multer = require('multer');
-
-// fetch is built-in since Node 18; polyfill for older versions
-const fetch = globalThis.fetch || require('node-fetch');
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-});
-
-// Multer — храним файлы в памяти, потом пишем в БД
-const ALLOWED_MIME = new Set([
-  'image/gif','image/png','image/jpeg','image/webp',
-  'video/mp4',
-  'audio/ogg','audio/mpeg','audio/mp3',
-]);
-const AVATAR_MIME = new Set(['image/gif','image/png','image/jpeg','image/webp']);
-
-const memStorage = multer.memoryStorage();
-
-const upload = multer({
-  storage: memStorage,
-  limits: { fileSize: 50 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (ALLOWED_MIME.has(file.mimetype)) cb(null, true);
-    else cb(new Error('Недопустимый тип файла'));
-  },
-});
-
-const avatarUpload = multer({
-  storage: memStorage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (AVATAR_MIME.has(file.mimetype)) cb(null, true);
-    else cb(new Error('Только изображения для аватара'));
-  },
-});
-
-async function initDB() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
-      username VARCHAR(50) UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      bio TEXT DEFAULT '',
-      avatar_data BYTEA,
-      avatar_mime TEXT,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT '';
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_data BYTEA;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_mime TEXT;
-
-    CREATE TABLE IF NOT EXISTS posts (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      title TEXT NOT NULL,
-      content TEXT,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS post_files (
-      id SERIAL PRIMARY KEY,
-      post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
-      name TEXT,
-      mime TEXT,
-      data BYTEA,
-      size INTEGER,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS likes (
-      id SERIAL PRIMARY KEY,
-      post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      UNIQUE(post_id, user_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS comments (
-      id SERIAL PRIMARY KEY,
-      post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      content TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS comment_files (
-      id SERIAL PRIMARY KEY,
-      comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
-      name TEXT,
-      mime TEXT,
-      data BYTEA,
-      size INTEGER,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS notifications (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      actor_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      type TEXT NOT NULL,
-      post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
-      comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
-      is_read BOOLEAN DEFAULT FALSE,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS tracks (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      title TEXT NOT NULL,
-      artist TEXT NOT NULL,
-      audio_data BYTEA NOT NULL,
-      audio_mime TEXT NOT NULL,
-      audio_size INTEGER,
-      cover_data BYTEA,
-      cover_mime TEXT,
-      duration INTEGER,
-      plays INTEGER DEFAULT 0,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS track_likes (
-      id SERIAL PRIMARY KEY,
-      track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      UNIQUE(track_id, user_id)
-    );
-  `);
-  console.log('✅ Таблицы готовы');
-}
-
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 },
-}));
-
-const ADMIN_USERNAME = 'FokzBurmalda';
-
-async function isAdmin(userId) {
-  const { rows } = await pool.query('SELECT username FROM users WHERE id = $1', [userId]);
-  return rows[0] && rows[0].username === ADMIN_USERNAME;
-}
-
-function requireAuth(req, res, next) {
-  if (!req.session.userId) return res.status(401).json({ error: 'Не авторизован' });
-  next();
-}
-
-app.get('/api/status', (req, res) => res.json({ ok: true, uptime: process.uptime() }));
-
-// ── AUTH ─────────────────────────────────────────────
-app.post('/api/register', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'Заполни все поля' });
-  try {
-    const hash = await bcrypt.hash(password, 10);
-    const { rows } = await pool.query(
-      'INSERT INTO users (username, password) VALUES ($1, $2) RETURNING id, username',
-      [username, hash]
-    );
-    req.session.userId = rows[0].id;
-    res.json({ user: rows[0] });
-  } catch (e) {
-    if (e.code === '23505') return res.status(400).json({ error: 'Имя занято' });
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-app.post('/api/login', async (req, res) => {
-  const { username, password } = req.body;
-  try {
-    const { rows } = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
-    if (!rows[0]) return res.status(401).json({ error: 'Неверный логин или пароль' });
-    const ok = await bcrypt.compare(password, rows[0].password);
-    if (!ok) return res.status(401).json({ error: 'Неверный логин или пароль' });
-    req.session.userId = rows[0].id;
-    res.json({ user: { id: rows[0].id, username: rows[0].username } });
-  } catch { res.status(500).json({ error: 'Ошибка сервера' }); }
-});
-
-app.post('/api/logout', (req, res) => { req.session.destroy(); res.json({ ok: true }); });
-
-app.get('/api/me', requireAuth, async (req, res) => {
-  const { rows } = await pool.query(
-    'SELECT id, username, bio, (avatar_data IS NOT NULL) AS has_avatar, created_at FROM users WHERE id = $1',
-    [req.session.userId]
-  );
-  const u = rows[0];
-  res.json({ ...u, avatar: u.has_avatar ? `/api/avatar/${u.id}` : '' });
-});
-
-// ── AVATAR SERVE ─────────────────────────────────────
-app.get('/api/avatar/:id', async (req, res) => {
-  const { rows } = await pool.query(
-    'SELECT avatar_data, avatar_mime FROM users WHERE id = $1',
-    [req.params.id]
-  );
-  if (!rows[0] || !rows[0].avatar_data) return res.status(404).end();
-  res.set('Content-Type', rows[0].avatar_mime);
-  res.set('Cache-Control', 'no-cache');
-  res.send(rows[0].avatar_data);
-});
-
-// ── FILE SERVE ───────────────────────────────────────
-app.get('/api/file/:id', async (req, res) => {
-  // Check post_files first, then comment_files
-  let result = await pool.query('SELECT name, mime, data FROM post_files WHERE id = $1', [req.params.id]);
-  if (!result.rows[0]) {
-    result = await pool.query('SELECT name, mime, data FROM comment_files WHERE id = $1', [req.params.id]);
-  }
-  if (!result.rows[0]) return res.status(404).end();
-  const { name, mime, data } = result.rows[0];
-  res.set('Content-Type', mime);
-  res.set('Content-Disposition', `inline; filename="${encodeURIComponent(name)}"`);
-  res.set('Cache-Control', 'public, max-age=31536000');
-  res.send(data);
-});
-
-// ── UPLOAD ───────────────────────────────────────────
-app.post('/api/upload', requireAuth, upload.array('files', 10), async (req, res) => {
-  if (!req.files || !req.files.length) return res.status(400).json({ error: 'Нет файлов' });
-  // We store them temporarily and return IDs — actual DB insert happens when post/comment is created
-  // Instead: store now as orphan rows in post_files with post_id=NULL, then link on post creation
-  const files = [];
-  for (const f of req.files) {
-    const { rows } = await pool.query(
-      'INSERT INTO post_files (name, mime, data, size) VALUES ($1, $2, $3, $4) RETURNING id',
-      [f.originalname, f.mimetype, f.buffer, f.size]
-    );
-    files.push({
-      id: rows[0].id,
-      url: `/api/file/${rows[0].id}`,
-      name: f.originalname,
-      mime: f.mimetype,
-      size: f.size,
-    });
-  }
-  res.json({ files });
-});
-
-// ── PROFILE ──────────────────────────────────────────
-app.get('/api/profile/:id', async (req, res) => {
-  const { rows } = await pool.query(
-    'SELECT id, username, bio, (avatar_data IS NOT NULL) AS has_avatar, created_at FROM users WHERE id = $1',
-    [req.params.id]
-  );
-  if (!rows[0]) return res.status(404).json({ error: 'Пользователь не найден' });
-  const u = rows[0];
-  res.json({ ...u, avatar: u.has_avatar ? `/api/avatar/${u.id}` : '' });
-});
-
-app.post('/api/profile/bio', requireAuth, async (req, res) => {
-  const { bio } = req.body;
-  await pool.query('UPDATE users SET bio = $1 WHERE id = $2', [bio || '', req.session.userId]);
-  res.json({ ok: true });
-});
-
-app.post('/api/profile/avatar', requireAuth, avatarUpload.single('avatar'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Файл не получен' });
-  await pool.query(
-    'UPDATE users SET avatar_data = $1, avatar_mime = $2 WHERE id = $3',
-    [req.file.buffer, req.file.mimetype, req.session.userId]
-  );
-  res.json({ url: `/api/avatar/${req.session.userId}` });
-});
-
-// ── POSTS ────────────────────────────────────────────
-app.get('/api/posts', async (req, res) => {
-  const userId = req.session.userId || 0;
-  const { rows } = await pool.query(`
-    SELECT p.id, p.user_id, p.title, p.content, p.created_at,
-      u.username, (u.avatar_data IS NOT NULL) AS has_avatar,
-      (SELECT COUNT(*) FROM likes WHERE post_id = p.id) AS likes_count,
-      (SELECT COUNT(*) FROM comments WHERE post_id = p.id) AS comments_count,
-      (SELECT COUNT(*) FROM likes WHERE post_id = p.id AND user_id = $1) AS user_liked
-    FROM posts p JOIN users u ON p.user_id = u.id
-    ORDER BY p.created_at DESC
-  `, [userId]);
-
-  // Attach file metadata for each post
-  const postIds = rows.map(r => r.id);
-  let fileRows = [];
-  if (postIds.length) {
-    const fr = await pool.query(
-      'SELECT id, post_id, name, mime, size FROM post_files WHERE post_id = ANY($1)',
-      [postIds]
-    );
-    fileRows = fr.rows;
-  }
-
-  const result = rows.map(p => ({
-    ...p,
-    avatar: p.has_avatar ? `/api/avatar/${p.user_id}` : '',
-    attachments: fileRows
-      .filter(f => f.post_id === p.id)
-      .map(f => ({ id: f.id, url: `/api/file/${f.id}`, name: f.name, mime: f.mime, size: f.size })),
-  }));
-  res.json(result);
-});
-
-app.post('/api/posts', requireAuth, async (req, res) => {
-  const { title, content, attachments } = req.body;
-  if (!title) return res.status(400).json({ error: 'Нужен заголовок' });
-  const { rows } = await pool.query(
-    'INSERT INTO posts (user_id, title, content) VALUES ($1, $2, $3) RETURNING *',
-    [req.session.userId, title, content]
-  );
-  const postId = rows[0].id;
-  // Link uploaded files to this post
-  if (attachments && attachments.length) {
-    const ids = attachments.map(a => a.id).filter(Boolean);
-    if (ids.length) {
-      await pool.query('UPDATE post_files SET post_id = $1 WHERE id = ANY($2)', [postId, ids]);
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Aero Socialite</title>
+  <style>
+    :root {
+      --bg: #e7e9ec;
+      --card: #ffffff;
+      --border: #d3d9de;
+      --text: #222222;
+      --text2: #888888;
+      --text3: #2b587a;
+      --header: #4a76a8;
+      --header2: #3d6690;
+      --header-text: #ffffff;
+      --header-muted: #c5d9ee;
+      --input-bg: #ffffff;
+      --input-border: #d3d9de;
+      --side-link: #f5f7fa;
+      --comment-bg: #f5f7fa;
+      --like-active: #e74c3c;
     }
-  }
-  res.json(rows[0]);
-});
-
-// ── EDIT POST (owner or admin) ───────────────────────
-app.put('/api/posts/:id', requireAuth, async (req, res) => {
-  const { title, content, addAttachments, removeFileIds } = req.body;
-  const userId = req.session.userId;
-  const admin = await isAdmin(userId);
-  const { rows } = await pool.query('SELECT user_id FROM posts WHERE id = $1', [req.params.id]);
-  if (!rows[0]) return res.status(404).json({ error: 'Пост не найден' });
-  if (!admin && rows[0].user_id !== userId) return res.status(403).json({ error: 'Нет доступа' });
-
-  if (title !== undefined || content !== undefined) {
-    await pool.query(
-      'UPDATE posts SET title = COALESCE($1, title), content = COALESCE($2, content) WHERE id = $3',
-      [title || null, content !== undefined ? content : null, req.params.id]
-    );
-  }
-  // Remove selected files
-  if (removeFileIds && removeFileIds.length) {
-    await pool.query('DELETE FROM post_files WHERE id = ANY($1) AND post_id = $2', [removeFileIds, req.params.id]);
-  }
-  // Link new uploaded files
-  if (addAttachments && addAttachments.length) {
-    const ids = addAttachments.map(a => a.id).filter(Boolean);
-    if (ids.length) await pool.query('UPDATE post_files SET post_id = $1 WHERE id = ANY($2)', [req.params.id, ids]);
-  }
-  res.json({ ok: true });
-});
-
-// ── DELETE POST (owner or admin) ─────────────────────
-app.delete('/api/posts/:id', requireAuth, async (req, res) => {
-  const userId = req.session.userId;
-  const admin = await isAdmin(userId);
-  if (admin) {
-    await pool.query('DELETE FROM posts WHERE id = $1', [req.params.id]);
-  } else {
-    await pool.query('DELETE FROM posts WHERE id = $1 AND user_id = $2', [req.params.id, userId]);
-  }
-  res.json({ ok: true });
-});
-
-// ── LIKES ────────────────────────────────────────────
-app.post('/api/posts/:id/like', requireAuth, async (req, res) => {
-  const postId = req.params.id;
-  const userId = req.session.userId;
-  const { rows } = await pool.query('SELECT id FROM likes WHERE post_id=$1 AND user_id=$2', [postId, userId]);
-  if (rows[0]) {
-    await pool.query('DELETE FROM likes WHERE post_id=$1 AND user_id=$2', [postId, userId]);
-    res.json({ liked: false });
-  } else {
-    await pool.query('INSERT INTO likes (post_id, user_id) VALUES ($1, $2)', [postId, userId]);
-    // Notify post owner (not self)
-    const postOwner = await pool.query('SELECT user_id FROM posts WHERE id=$1', [postId]);
-    if (postOwner.rows[0] && postOwner.rows[0].user_id !== userId) {
-      await pool.query(
-        'INSERT INTO notifications (user_id, actor_id, type, post_id) VALUES ($1, $2, $3, $4)',
-        [postOwner.rows[0].user_id, userId, 'like', postId]
+    body.dark {
+      --bg: #1a1a1a;
+      --card: #242424;
+      --border: #383838;
+      --text: #e8e8e8;
+      --text2: #888888;
+      --text3: #7aabda;
+      --header: #1e2a38;
+      --header2: #16202c;
+      --header-text: #e8e8e8;
+      --header-muted: #6a8aa8;
+      --input-bg: #2e2e2e;
+      --input-border: #484848;
+      --side-link: #2a2a2a;
+      --comment-bg: #2a2a2a;
+      --like-active: #e74c3c;
+    }
+    body.summer {
+      --bg: #f5edd6;
+      --card: #fffdf5;
+      --border: #e0d0a8;
+      --text: #3a2e1a;
+      --text2: #8a7a5a;
+      --text3: #7a5c1e;
+      --header: #c8a84b;
+      --header2: #b8922e;
+      --header-text: #fffdf0;
+      --header-muted: #f5e8c0;
+      --input-bg: #fffdf5;
+      --input-border: #d4c08a;
+      --side-link: #f0e6c8;
+      --comment-bg: #f0e6c8;
+      --like-active: #e74c3c;
+    }
+    /* Summer header: glossy gradient Sandy Yellow → Faded Leaf → Sandy Yellow */
+    body.summer #header {
+      background: linear-gradient(
+        180deg,
+        rgba(255,255,255,0.18) 0%,
+        rgba(255,255,255,0.0) 60%
+      ),
+      linear-gradient(
+        90deg,
+        #d4aa45 0%,
+        #a07830 50%,
+        #d4aa45 100%
       );
+      box-shadow: 0 2px 8px rgba(160,120,48,0.25), inset 0 1px 0 rgba(255,255,255,0.35);
     }
-    res.json({ liked: true });
-  }
-});
+    body.summer #header .search-wrap input { background: rgba(160,120,48,0.25); }
+    body.summer #header nav button:hover,
+    body.summer #header nav button.active { background: rgba(0,0,0,0.15); }
+    /* Summer sidebar */
+    body.summer .side-block .side-header {
+      background: linear-gradient(90deg, #c8a030 0%, #a07828 100%);
+    }
+    body.summer .profile-mini .avatar { background: #c8a030; }
+    body.summer .side-block a { color: #7a5c1e; }
+    body.summer .side-block a:hover,
+    body.summer .side-block a.active { background: #e8d8a8; }
 
-// ── COMMENTS ─────────────────────────────────────────
-app.get('/api/posts/:id/comments', async (req, res) => {
-  const { rows } = await pool.query(`
-    SELECT c.id, c.post_id, c.user_id, c.content, c.created_at,
-      u.username, (u.avatar_data IS NOT NULL) AS has_avatar
-    FROM comments c
-    JOIN users u ON c.user_id = u.id
-    WHERE c.post_id = $1 ORDER BY c.created_at ASC
-  `, [req.params.id]);
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:Arial,sans-serif; background:var(--bg); font-size:13px; color:var(--text); transition:background .2s,color .2s; }
 
-  const commentIds = rows.map(r => r.id);
-  let fileRows = [];
-  if (commentIds.length) {
-    const fr = await pool.query(
-      'SELECT id, comment_id, name, mime, size FROM comment_files WHERE comment_id = ANY($1)',
-      [commentIds]
-    );
-    fileRows = fr.rows;
-  }
+    /* HEADER */
+    #header { background:var(--header); height:44px; display:flex; align-items:center; padding:0 20px; gap:12px; position:sticky; top:0; z-index:100; }
+    #header .logo { color:var(--header-text); font-size:20px; font-weight:bold; letter-spacing:1px; }
+    #header .search-wrap { flex:1; max-width:360px; }
+    #header .search-wrap input { width:100%; padding:5px 10px; border-radius:4px; border:none; font-size:13px; background:#5b87b8; color:white; }
+    body.dark #header .search-wrap input { background:#2a3a4a; }
+    #header .search-wrap input::placeholder { color:var(--header-muted); }
+    #header nav { margin-left:auto; display:flex; gap:4px; align-items:center; }
+    #header nav button { background:none; border:none; color:var(--header-muted); font-size:13px; cursor:pointer; padding:6px 10px; border-radius:4px; }
+    #header nav button:hover, #header nav button.active { background:var(--header2); color:var(--header-text); }
+    #header .user-name { color:var(--header-text); font-size:13px; }
 
-  const result = rows.map(c => ({
-    ...c,
-    avatar: c.has_avatar ? `/api/avatar/${c.user_id}` : '',
-    attachments: fileRows
-      .filter(f => f.comment_id === c.id)
-      .map(f => ({ id: f.id, url: `/api/file/${f.id}`, name: f.name, mime: f.mime, size: f.size })),
-  }));
-  res.json(result);
-});
+    /* LAYOUT */
+    #layout { max-width:990px; margin:16px auto; display:flex; gap:10px; padding:0 10px; }
+    #sidebar { width:220px; flex-shrink:0; }
+    #main-feed { flex:1; min-width:0; }
 
-app.post('/api/posts/:id/comments', requireAuth, async (req, res) => {
-  const { content, attachments } = req.body;
-  if (!content && (!attachments || !attachments.length)) return res.status(400).json({ error: 'Пустой комментарий' });
-  const { rows } = await pool.query(
-    'INSERT INTO comments (post_id, user_id, content) VALUES ($1, $2, $3) RETURNING *',
-    [req.params.id, req.session.userId, content || '']
-  );
-  const commentId = rows[0].id;
-  // Move uploaded files from post_files to comment_files
-  if (attachments && attachments.length) {
-    for (const a of attachments) {
-      if (!a.id) continue;
-      const pf = await pool.query('SELECT * FROM post_files WHERE id = $1', [a.id]);
-      if (pf.rows[0]) {
-        await pool.query(
-          'INSERT INTO comment_files (comment_id, name, mime, data, size) VALUES ($1, $2, $3, $4, $5)',
-          [commentId, pf.rows[0].name, pf.rows[0].mime, pf.rows[0].data, pf.rows[0].size]
-        );
-        await pool.query('DELETE FROM post_files WHERE id = $1', [a.id]);
+    /* SIDEBAR */
+    .side-block { background:var(--card); border-radius:4px; border:1px solid var(--border); margin-bottom:10px; overflow:hidden; }
+    .side-block .side-header { background:var(--header); color:var(--header-text); padding:8px 12px; font-size:13px; font-weight:bold; }
+    .side-block a { display:block; padding:7px 12px; color:var(--text3); text-decoration:none; border-bottom:1px solid var(--border); font-size:13px; cursor:pointer; }
+    .side-block a:last-child { border-bottom:none; }
+    .side-block a:hover { background:var(--side-link); }
+    .side-block a.active { background:var(--side-link); font-weight:bold; }
+    .profile-mini { background:var(--card); border-radius:4px; border:1px solid var(--border); margin-bottom:10px; padding:12px; text-align:center; }
+    .profile-mini .avatar { width:72px; height:72px; border-radius:4px; background:#4a76a8; margin:0 auto 8px; display:flex; align-items:center; justify-content:center; font-size:26px; color:white; font-weight:bold; overflow:hidden; }
+    .profile-mini .avatar img { width:100%; height:100%; object-fit:cover; }
+    .profile-mini .uname { font-size:14px; font-weight:bold; color:var(--text3); }
+    .profile-mini .usub { font-size:12px; color:var(--text2); margin-top:2px; }
+
+    /* AVATAR HELPERS */
+    .user-avatar { border-radius:4px; background:#4a76a8; display:flex; align-items:center; justify-content:center; color:white; font-weight:bold; overflow:hidden; flex-shrink:0; cursor:pointer; }
+    .user-avatar img { width:100%; height:100%; object-fit:cover; }
+    .post-avatar { width:38px; height:38px; font-size:14px; }
+    .comment-avatar { width:28px; height:28px; font-size:11px; }
+
+    /* PROFILE PAGE */
+    .profile-page { background:var(--card); border-radius:4px; border:1px solid var(--border); overflow:hidden; margin-bottom:10px; }
+    .profile-cover { height:140px; background:linear-gradient(135deg,#4a76a8,#3d6690); }
+    .profile-info { padding:0 16px 16px; display:flex; gap:14px; align-items:flex-end; }
+    .profile-big-av { width:80px; height:80px; border-radius:6px; border:3px solid var(--card); background:#4a76a8; display:flex; align-items:center; justify-content:center; color:white; font-size:32px; font-weight:bold; margin-top:-40px; overflow:hidden; flex-shrink:0; }
+    .profile-big-av img { width:100%; height:100%; object-fit:cover; }
+    .profile-details { flex:1; padding-top:8px; }
+    .profile-details h2 { font-size:18px; font-weight:bold; color:var(--text); }
+    .profile-bio-text { font-size:13px; color:var(--text2); margin-top:4px; line-height:1.4; }
+    .profile-joined { font-size:12px; color:var(--text2); margin-top:4px; }
+
+    /* SETTINGS PROFILE */
+    .settings-section { margin-bottom:18px; padding-bottom:18px; border-bottom:1px solid var(--border); }
+    .settings-section:last-child { border-bottom:none; margin-bottom:0; padding-bottom:0; }
+    .settings-section h4 { font-size:13px; color:var(--text2); text-transform:uppercase; letter-spacing:.5px; margin-bottom:10px; }
+    .avatar-upload-wrap { display:flex; gap:12px; align-items:center; }
+    .avatar-preview { width:64px; height:64px; border-radius:6px; background:#4a76a8; display:flex; align-items:center; justify-content:center; color:white; font-size:24px; font-weight:bold; overflow:hidden; flex-shrink:0; }
+    .avatar-preview img { width:100%; height:100%; object-fit:cover; }
+    .bio-input { width:100%; padding:8px; border:1px solid var(--input-border); border-radius:4px; font-size:13px; resize:vertical; min-height:70px; font-family:Arial,sans-serif; color:var(--text); background:var(--input-bg); }
+    .bio-input:focus { outline:none; border-color:#4a76a8; }
+
+    /* WRITE */
+    .write-block { background:var(--card); border-radius:4px; border:1px solid var(--border); margin-bottom:10px; padding:10px 12px; }
+    .write-block textarea, .write-block input[type=text] { width:100%; border:1px solid var(--input-border); border-radius:4px; padding:8px; font-size:13px; resize:none; font-family:Arial,sans-serif; color:var(--text); background:var(--input-bg); }
+    .write-block textarea { min-height:70px; margin-top:6px; }
+    .write-block textarea:focus, .write-block input:focus { outline:none; border-color:#4a76a8; }
+    .write-footer { display:flex; justify-content:flex-end; margin-top:8px; }
+
+    /* BUTTONS */
+    .btn { padding:6px 14px; border-radius:3px; border:none; cursor:pointer; font-size:13px; }
+    .btn-blue { background:#4a76a8; color:white; }
+    .btn-blue:hover { background:#3d6690; }
+    .btn-gray { background:#e0e4e8; color:#444; }
+    .btn-gray:hover { background:#d0d4d8; }
+    body.dark .btn-gray { background:#383838; color:#ccc; }
+    body.dark .btn-gray:hover { background:#484848; }
+    .btn-sm { padding:4px 10px; font-size:12px; }
+
+    /* POST CARD */
+    .post-card { background:var(--card); border-radius:4px; border:1px solid var(--border); margin-bottom:10px; }
+    .post-top { display:flex; align-items:center; gap:10px; padding:10px 12px 6px; }
+    .post-meta .post-author { font-weight:bold; color:var(--text3); font-size:13px; }
+    .post-meta .post-time { font-size:11px; color:var(--text2); margin-top:1px; }
+    .post-body { padding:4px 12px 10px; font-size:13px; line-height:1.5; color:var(--text); }
+    .post-title-text { font-weight:bold; font-size:14px; margin-bottom:4px; }
+    .post-footer { border-top:1px solid var(--border); padding:6px 12px; display:flex; gap:14px; align-items:center; }
+    .post-action { font-size:12px; color:var(--text2); cursor:pointer; background:none; border:none; padding:3px 6px; border-radius:3px; display:flex; align-items:center; gap:4px; }
+    .post-action:hover { background:var(--side-link); color:var(--text3); }
+    .post-action.liked { color:var(--like-active); font-weight:bold; }
+    .del-btn { margin-left:auto; font-size:12px; color:#c0392b; cursor:pointer; background:none; border:none; padding:3px 6px; }
+    .del-btn:hover { text-decoration:underline; }
+
+    /* COMMENTS */
+    .comments-section { border-top:1px solid var(--border); padding:8px 12px; display:none; }
+    .comments-section.open { display:block; }
+    .comment-item { display:flex; gap:8px; margin-bottom:8px; align-items:flex-start; }
+    .comment-body { background:var(--comment-bg); border-radius:4px; padding:6px 10px; flex:1; }
+    .comment-author { font-weight:bold; font-size:12px; color:var(--text3); }
+    .comment-text { font-size:13px; margin-top:2px; color:var(--text); }
+    .comment-del { font-size:11px; color:#c0392b; cursor:pointer; background:none; border:none; margin-left:6px; }
+    .comment-form { display:flex; gap:6px; margin-top:8px; }
+    .comment-form input { flex:1; padding:6px 8px; border:1px solid var(--input-border); border-radius:3px; font-size:13px; background:var(--input-bg); color:var(--text); }
+    .comment-form input:focus { outline:none; border-color:#4a76a8; }
+
+    /* FEED TABS */
+    .feed-tabs { background:var(--card); border-radius:4px; border:1px solid var(--border); margin-bottom:10px; display:flex; }
+    .feed-tabs button { flex:1; padding:9px; border:none; background:none; font-size:13px; cursor:pointer; color:var(--text2); border-bottom:2px solid transparent; }
+    .feed-tabs button.active { color:#4a76a8; border-bottom-color:#4a76a8; font-weight:bold; }
+    .feed-tabs button:hover:not(.active) { background:var(--side-link); }
+
+    /* SETTINGS */
+    .settings-block { background:var(--card); border-radius:4px; border:1px solid var(--border); padding:16px; }
+    .settings-block h3 { font-size:14px; color:var(--text3); margin-bottom:14px; }
+    .theme-options { display:flex; gap:10px; }
+    .theme-btn { flex:1; padding:20px 10px; border:2px solid var(--border); border-radius:6px; cursor:pointer; text-align:center; font-size:13px; background:var(--input-bg); color:var(--text); transition:border-color .15s; }
+    .theme-btn:hover { border-color:#4a76a8; }
+    .theme-btn.selected { border-color:#4a76a8; background:rgba(74,118,168,0.08); }
+    .theme-btn .theme-icon { font-size:28px; display:block; margin-bottom:6px; }
+
+    /* AUTH */
+    #auth-overlay { position:fixed; inset:0; background:#4a76a8; display:flex; align-items:center; justify-content:center; z-index:999; }
+    #auth-box { background:white; border-radius:6px; padding:24px 28px; width:320px; }
+    #auth-box h2 { font-size:18px; color:#2b587a; margin-bottom:16px; }
+    #auth-box input { width:100%; padding:8px 10px; border:1px solid #d3d9de; border-radius:3px; font-size:13px; margin-bottom:10px; }
+    #auth-box input:focus { outline:none; border-color:#4a76a8; }
+    .auth-err { color:#c0392b; font-size:12px; margin-bottom:8px; min-height:16px; }
+    .auth-switch { text-align:center; margin-top:10px; font-size:12px; color:#888; }
+    .auth-switch a { color:#4a76a8; cursor:pointer; text-decoration:underline; }
+    .auth-divider { display:flex; align-items:center; gap:8px; margin:14px 0 12px; color:#bbb; font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+    .auth-divider::before, .auth-divider::after { content:''; flex:1; height:1px; background:#e0e4e8; }
+    #guest-enter-btn { width:100%; }
+    .guest-hint { margin-top:8px; font-size:11.5px; color:var(--text2); text-align:center; line-height:1.4; }
+    .auth-disclaimer { font-size:11.5px; color:#a85b00; background:#fff4e0; border:1px solid #f0d8a8; border-radius:4px; padding:7px 10px; text-align:center; line-height:1.4; margin-bottom:14px; }
+
+    /* GUEST MODE */
+    #guest-banner { display:none; position:sticky; top:44px; z-index:99; background:#f5a623; color:#3a2e10; font-size:12.5px; font-weight:bold; padding:7px 14px; text-align:center; align-items:center; justify-content:center; gap:10px; }
+    #guest-banner button { background:#3a2e10; color:#fff; border:none; padding:4px 12px; border-radius:3px; font-size:12px; font-weight:bold; cursor:pointer; }
+    #guest-banner button:hover { opacity:.85; }
+    body.guest-mode #guest-banner { display:flex; }
+    /* Visual cue: action controls look disabled while still being read/scrolled */
+    body.guest-mode .post-action,
+    body.guest-mode .write-footer button,
+    body.guest-mode .comment-submit,
+    body.guest-mode .settings-section button,
+    body.guest-mode .avatar-upload-wrap button { opacity:.5; cursor:not-allowed; }
+    body.guest-mode .write-block textarea,
+    body.guest-mode .write-block input,
+    body.guest-mode .comment-input,
+    body.guest-mode #bio-input,
+    body.guest-mode .settings-section input,
+    body.guest-mode .settings-section textarea { cursor:not-allowed; background:var(--side-link); }
+    body.guest-mode #write-block { opacity:.6; position:relative; }
+    body.guest-mode #write-block::after {
+      content:'Войдите, чтобы публиковать записи'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      font-weight:bold; color:var(--text2); font-size:12px; pointer-events:none;
+    }
+    body.guest-mode #music-upload-card { opacity:.6; position:relative; cursor:not-allowed; }
+    body.guest-mode #music-upload-card::after {
+      content:'Войдите, чтобы загружать музыку'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      font-weight:bold; color:var(--text2); font-size:12px; pointer-events:none; background:var(--card);
+    }
+
+    .empty { text-align:center; padding:30px; color:var(--text2); background:var(--card); border-radius:4px; border:1px solid var(--border); }
+    #toast { position:fixed; bottom:20px; right:20px; background:#2ecc71; color:white; padding:10px 16px; border-radius:4px; font-size:13px; display:none; z-index:9999; }
+
+    /* ── NOTIFICATIONS ────────────────────────────── */
+    .notif-item { display:flex; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); align-items:flex-start; cursor:pointer; border-radius:4px; transition:background .1s; }
+    .notif-item:last-child { border-bottom:none; }
+    .notif-item:hover { background:var(--side-link); }
+    .notif-item.unread { background:rgba(74,118,168,0.07); }
+    .notif-item.unread:hover { background:rgba(74,118,168,0.13); }
+    .notif-avatar { width:36px; height:36px; border-radius:4px; background:#4a76a8; display:flex; align-items:center; justify-content:center; color:white; font-weight:bold; font-size:13px; overflow:hidden; flex-shrink:0; }
+    .notif-avatar img { width:100%; height:100%; object-fit:cover; }
+    .notif-body { flex:1; font-size:13px; }
+    .notif-text { color:var(--text); line-height:1.4; }
+    .notif-text b { color:var(--text3); }
+    .notif-time { font-size:11px; color:var(--text2); margin-top:2px; }
+    .notif-dot { width:8px; height:8px; border-radius:50%; background:#4a76a8; flex-shrink:0; margin-top:6px; }
+    .notif-empty { text-align:center; padding:30px; color:var(--text2); font-size:13px; }
+
+    /* ── ATTACHMENTS ──────────────────────────────── */
+    .attach-btn { display:inline-flex; align-items:center; gap:5px; padding:5px 10px; border-radius:3px; border:1px dashed var(--input-border); background:none; color:var(--text2); font-size:12px; cursor:pointer; margin-right:8px; }
+    .attach-btn:hover { border-color:#4a76a8; color:#4a76a8; }
+    .attach-preview { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+    .attach-thumb { position:relative; display:inline-block; }
+    .attach-thumb img, .attach-thumb video { max-width:120px; max-height:90px; border-radius:4px; object-fit:cover; border:1px solid var(--border); display:block; }
+    .attach-thumb audio { width:180px; }
+    .attach-thumb .rm-attach { position:absolute; top:-6px; right:-6px; background:#e74c3c; color:white; border:none; border-radius:50%; width:18px; height:18px; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1; }
+    .attach-file-name { font-size:11px; color:var(--text2); max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px; }
+    .post-attachments, .comment-attachments { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+    .post-attachments img, .post-attachments video { max-width:240px; max-height:180px; border-radius:4px; object-fit:cover; border:1px solid var(--border); cursor:pointer; display:block; }
+    .post-attachments img:hover, .post-attachments video:hover { opacity:.9; }
+    .post-attachments audio { width:220px; }
+    .comment-attachments img, .comment-attachments video { max-width:160px; max-height:120px; border-radius:4px; object-fit:cover; border:1px solid var(--border); display:block; }
+    .comment-attachments audio { width:180px; }
+    /* lightbox */
+    #lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
+    #lightbox.open { display:flex; }
+    #lightbox img { max-width:92vw; max-height:92vh; border-radius:6px; object-fit:contain; }
+    #lightbox video { max-width:92vw; max-height:92vh; border-radius:6px; outline:none; }
+
+    /* ── MOBILE ───────────────────────────────────── */
+    @media (max-width: 768px) {
+      /* Base */
+      body { font-size:14px; -webkit-text-size-adjust:100%; }
+
+      /* Header: slimmer, no nav (moved to bottom bar) */
+      #header { padding:0 12px; gap:8px; height:50px; position:sticky; top:0; }
+      #header .logo { font-size:17px; }
+      #header .search-wrap { flex:1; display:block; max-width:none; }
+      #header .search-wrap input { font-size:14px; padding:7px 12px; border-radius:20px; }
+      #header nav { display:none; }
+      #header .user-name { display:none; }
+      #header .btn { display:none; }
+
+      /* Bottom nav bar */
+      #bottom-nav {
+        display:flex;
+        position:fixed;
+        bottom:0; left:0; right:0;
+        background:var(--card);
+        border-top:1px solid var(--border);
+        z-index:200;
+        padding-bottom:env(safe-area-inset-bottom, 0);
+        box-shadow:0 -2px 8px rgba(0,0,0,0.08);
+      }
+      #bottom-nav button {
+        flex:1;
+        background:none;
+        border:none;
+        padding:8px 0 6px;
+        font-size:10px;
+        color:var(--text2);
+        cursor:pointer;
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        gap:2px;
+        position:relative;
+        -webkit-tap-highlight-color:transparent;
+        transition:color .15s;
+      }
+      #bottom-nav button .bn-icon { font-size:22px; line-height:1; }
+      #bottom-nav button .bn-label { font-size:10px; }
+      #bottom-nav button.active { color:#4a76a8; }
+      #bottom-nav button.active .bn-label { font-weight:bold; }
+      #bottom-nav .bn-badge {
+        position:absolute;
+        top:4px; right:calc(50% - 16px);
+        background:#e74c3c;
+        color:white;
+        border-radius:10px;
+        min-width:16px;
+        height:16px;
+        font-size:10px;
+        line-height:16px;
+        text-align:center;
+        font-weight:bold;
+        padding:0 3px;
+      }
+
+      /* Layout: single column, no sidebar, bottom nav padding */
+      #layout { flex-direction:column; margin:10px auto; padding:0; gap:0; }
+      #layout { padding-bottom:calc(56px + env(safe-area-inset-bottom, 0)); }
+      #sidebar { display:none; }
+      #main-feed { padding:0 10px; }
+
+      /* Write block */
+      .write-block { border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+      .write-block input[type=text] { font-size:15px; padding:8px 10px; }
+      .write-block textarea { font-size:14px; min-height:72px; padding:8px 10px; margin-top:6px; }
+      .write-footer { margin-top:8px; gap:8px; }
+      .attach-btn { padding:8px 12px; font-size:13px; border-radius:20px; }
+
+      /* Feed tabs */
+      .feed-tabs { border-radius:8px; margin-bottom:8px; }
+      .feed-tabs button { padding:12px; font-size:14px; }
+
+      /* Post cards */
+      .post-card { border-radius:8px; margin-bottom:8px; }
+      .post-top { padding:12px 12px 6px; gap:10px; }
+      .post-avatar { width:40px; height:40px; font-size:15px; border-radius:6px; }
+      .post-meta .post-author { font-size:14px; }
+      .post-meta .post-time { font-size:12px; }
+      .post-body { padding:4px 12px 12px; font-size:14px; line-height:1.55; }
+      .post-title-text { font-size:15px; margin-bottom:5px; }
+      .post-footer { padding:8px 12px; gap:0; justify-content:space-between; }
+      .post-action { padding:8px 0; font-size:13px; flex:1; justify-content:center; border-radius:6px; }
+      .del-btn { padding:8px 8px; font-size:12px; }
+
+      /* Full-width images in posts */
+      .post-attachments { flex-direction:column; gap:6px; }
+      .post-attachments img,
+      .post-attachments video { max-width:100%; max-height:none; width:100%; height:auto; border-radius:6px; }
+      .post-attachments audio { width:100%; }
+
+      /* Comments */
+      .comments-section { padding:10px 12px; }
+      .comment-item { gap:8px; margin-bottom:10px; }
+      .comment-avatar { width:32px; height:32px; font-size:12px; border-radius:5px; }
+      .comment-body { padding:8px 10px; border-radius:8px; }
+      .comment-author { font-size:13px; }
+      .comment-text { font-size:14px; margin-top:3px; }
+      .comment-form { gap:8px; margin-top:10px; }
+      .comment-form input { font-size:14px; padding:10px 12px; border-radius:20px; }
+      .comment-form .btn { padding:10px 14px; border-radius:20px; font-size:13px; }
+      .comment-form .attach-btn { padding:10px; border-radius:50%; aspect-ratio:1; }
+      .comment-attachments img,
+      .comment-attachments video { max-width:100%; border-radius:6px; }
+      .comment-attachments audio { width:100%; }
+
+      /* Profile */
+      .profile-page { border-radius:8px; }
+      .profile-cover { height:100px; }
+      .profile-info { padding:0 14px 14px; gap:12px; }
+      .profile-big-av { width:68px; height:68px; font-size:26px; margin-top:-34px; }
+      .profile-details h2 { font-size:17px; }
+      .profile-bio-text { font-size:14px; }
+
+      /* Settings */
+      .settings-block { border-radius:8px; padding:14px; }
+      .settings-block h3 { font-size:15px; }
+      .theme-options { flex-direction:row; gap:8px; }
+      .theme-btn { padding:16px 8px; font-size:12px; flex:1; }
+      .theme-btn .theme-icon { font-size:22px; }
+      .bio-input { font-size:14px; padding:10px; }
+
+      /* Notifications */
+      .settings-block .notif-item { padding:10px 4px; gap:10px; }
+      .notif-avatar { width:40px; height:40px; font-size:14px; border-radius:6px; }
+      .notif-text { font-size:14px; }
+      .notif-time { font-size:12px; margin-top:3px; }
+
+      /* Auth */
+      #auth-overlay { padding:16px; }
+      #auth-box { width:100%; max-width:360px; padding:24px 20px; border-radius:12px; }
+      #auth-box h2 { font-size:20px; }
+      #auth-box input { padding:12px; font-size:15px; border-radius:6px; margin-bottom:12px; }
+      #auth-box button { padding:12px; font-size:15px; border-radius:6px; }
+
+      /* Toast */
+      #toast { left:10px; right:10px; bottom:calc(66px + env(safe-area-inset-bottom, 0)); text-align:center; border-radius:8px; font-size:14px; }
+
+      /* Lightbox */
+      #lightbox img { max-width:98vw; max-height:88vh; }
+      #lightbox video { max-width:98vw; max-height:88vh; }
+
+      /* Attachment previews */
+      .attach-preview { gap:8px; }
+      .attach-thumb img, .attach-thumb video { max-width:100px; max-height:80px; }
+    }
+
+    @media (max-width: 480px) {
+      #main-feed { padding:0 8px; }
+      .post-footer { gap:0; }
+      .post-action { font-size:12px; }
+      .write-block textarea { min-height:60px; }
+    }
+
+    /* увеличиваем тап-зоны на тач-устройствах */
+    @media (hover: none) and (pointer: coarse) {
+      .post-action, .del-btn, .comment-del, .btn, .side-block a, .feed-tabs button {
+        min-height:44px;
       }
     }
+
+    /* Hide bottom nav on desktop */
+    @media (min-width: 769px) {
+      #bottom-nav { display:none; }
+    }
+    /* ── MUSIC PLATFORM ──────────────────────────── */
+    .track-pin-btn { background:none; border:1px solid var(--border); border-radius:4px; padding:4px 8px; cursor:pointer; font-size:14px; color:var(--text2); transition:all .15s; }
+    .track-pin-btn:hover { border-color:#4a76a8; color:#4a76a8; }
+    .track-pin-btn.pinned { color:#e67e22; border-color:#e67e22; }
+    .music-upload-card { background:var(--card); border:1px solid var(--border); border-radius:8px; margin-bottom:10px; overflow:hidden; }
+    .music-upload-header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; font-size:14px; font-weight:bold; color:var(--text3); cursor:pointer; }
+    .music-upload-header:hover { background:var(--side-link); }
+    .music-upload-body { padding:14px 16px; border-top:1px solid var(--border); }
+    .music-cover-row { display:flex; gap:12px; margin-bottom:12px; }
+    .music-cover-pick { width:90px; height:90px; border-radius:8px; border:2px dashed var(--input-border); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; overflow:hidden; background:var(--input-bg); transition:border-color .15s; }
+    .music-cover-pick:hover { border-color:#4a76a8; }
+    .music-cover-pick img { width:100%; height:100%; object-fit:cover; }
+    .music-text-input { width:100%; padding:8px 10px; border:1px solid var(--input-border); border-radius:6px; font-size:13px; background:var(--input-bg); color:var(--text); font-family:Arial,sans-serif; }
+    .music-text-input:focus { outline:none; border-color:#4a76a8; }
+    .music-audio-pick { border:2px dashed var(--input-border); border-radius:8px; padding:14px; text-align:center; cursor:pointer; font-size:13px; color:var(--text2); margin-top:4px; transition:border-color .15s,color .15s; }
+    .music-audio-pick:hover { border-color:#4a76a8; color:#4a76a8; }
+
+    /* Track card */
+    .track-card { background:var(--card); border:1px solid var(--border); border-radius:8px; margin-bottom:8px; display:flex; align-items:center; gap:12px; padding:10px 14px; cursor:pointer; transition:background .1s; }
+    .track-card:hover { background:var(--side-link); }
+    .track-card.playing { border-color:#4a76a8; background:rgba(74,118,168,0.06); }
+    .track-cover { width:52px; height:52px; border-radius:6px; background:linear-gradient(135deg,#4a76a8,#3d6690); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:22px; overflow:hidden; }
+    .track-cover img { width:100%; height:100%; object-fit:cover; }
+    .track-info { flex:1; min-width:0; }
+    .track-title { font-size:14px; font-weight:bold; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .track-artist { font-size:12px; color:var(--text2); margin-top:2px; }
+    .track-meta { font-size:11px; color:var(--text2); margin-top:3px; display:flex; gap:8px; }
+    .track-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+    .track-like-btn { background:none; border:none; cursor:pointer; font-size:13px; color:var(--text2); padding:4px 6px; border-radius:4px; }
+    .track-like-btn:hover { color:var(--like-active); }
+    .track-like-btn.liked { color:var(--like-active); }
+    .track-del-btn { background:none; border:none; cursor:pointer; font-size:12px; color:#c0392b; padding:4px 6px; }
+    .track-play-indicator { font-size:18px; color:#4a76a8; }
+
+    /* Music player bar — floating & draggable */
+    .music-player {
+      position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+      width:min(680px, calc(100vw - 24px));
+      background:var(--card); border:1px solid var(--border);
+      border-radius:14px; padding:12px 14px;
+      display:grid; grid-template-columns:48px 1fr auto; grid-template-rows:auto auto;
+      gap:8px 12px; align-items:center;
+      z-index:500;
+      box-shadow:0 8px 32px rgba(0,0,0,0.18);
+      cursor:grab;
+      user-select:none;
+    }
+    .music-player.dragging { cursor:grabbing; box-shadow:0 16px 48px rgba(0,0,0,0.28); }
+    .mp-drag-handle { position:absolute; top:5px; left:50%; transform:translateX(-50%); width:36px; height:4px; border-radius:2px; background:var(--border); opacity:.6; pointer-events:none; }
+    .mp-cover { width:48px; height:48px; border-radius:6px; background:linear-gradient(135deg,#4a76a8,#3d6690); display:flex; align-items:center; justify-content:center; font-size:20px; overflow:hidden; grid-row:1/3; }
+    .mp-cover img { width:100%; height:100%; object-fit:cover; }
+    .mp-info { min-width:0; }
+    .mp-title { font-size:14px; font-weight:bold; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .mp-artist { font-size:12px; color:var(--text2); margin-top:1px; }
+    .mp-controls { display:flex; align-items:center; gap:6px; }
+    .mp-btn { background:none; border:none; cursor:pointer; font-size:20px; padding:2px; color:var(--text); line-height:1; }
+    .mp-btn:hover { color:#4a76a8; }
+    .mp-play { font-size:24px; }
+    .mp-repeat-btn { font-size:16px; opacity:.45; transition:opacity .15s, color .15s; }
+    .mp-repeat-btn.active-one { opacity:1; color:#4a76a8; }
+    .mp-repeat-btn.active-all { opacity:1; color:#4a76a8; }
+    .mp-progress-wrap { grid-column:2/3; display:flex; align-items:center; gap:6px; }
+    .mp-progress { flex:1; -webkit-appearance:none; height:4px; border-radius:2px; background:var(--border); cursor:pointer; }
+    .mp-progress::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:#4a76a8; }
+    .mp-time { font-size:11px; color:var(--text2); white-space:nowrap; min-width:30px; }
+    .mp-vol { grid-column:3/4; grid-row:2/3; display:flex; align-items:center; gap:4px; font-size:13px; }
+    .mp-vol input { width:70px; -webkit-appearance:none; height:4px; border-radius:2px; background:var(--border); cursor:pointer; }
+    .mp-vol input::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:#4a76a8; }
+
+    #music-search-bar { margin-bottom:8px; }
+
+    @media (max-width:768px) {
+      .music-player { grid-template-columns:44px 1fr; grid-template-rows:auto auto auto; bottom:70px; }
+      .mp-cover { grid-row:1/3; }
+      .mp-controls { grid-column:2/3; }
+      .mp-progress-wrap { grid-column:1/3; }
+      .mp-vol { display:none; }
+      .track-card { padding:10px 12px; gap:10px; }
+      .track-cover { width:46px; height:46px; }
+    }
+    /* ── AI CHAT ──────────────────────────────────── */
+    .ai-chat-wrap { background:var(--card); border-radius:4px; border:1px solid var(--border); display:flex; flex-direction:column; height:calc(100vh - 120px); min-height:400px; }
+    .ai-chat-header { background:var(--header); color:var(--header-text); padding:10px 14px; font-size:13px; font-weight:bold; border-radius:4px 4px 0 0; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-shrink:0; }
+    .ai-header-right { display:flex; align-items:center; gap:8px; }
+    .ai-model-sel { background:rgba(255,255,255,0.15); color:var(--header-text); border:1px solid rgba(255,255,255,0.25); border-radius:3px; padding:3px 6px; font-size:12px; cursor:pointer; }
+    .ai-model-sel option { background:var(--card); color:var(--text); }
+    .ai-messages { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+    .ai-welcome { text-align:center; margin:auto; padding:30px 20px; color:var(--text2); }
+    .ai-msg { display:flex; gap:8px; align-items:flex-start; max-width:100%; }
+    .ai-msg.user { flex-direction:row-reverse; }
+    .ai-bubble { padding:9px 13px; border-radius:12px; font-size:13px; line-height:1.55; max-width:80%; word-break:break-word; white-space:pre-wrap; }
+    .ai-msg.user .ai-bubble { background:#4a76a8; color:white; border-radius:12px 12px 2px 12px; }
+    .ai-msg.bot .ai-bubble { background:var(--comment-bg); color:var(--text); border-radius:12px 12px 12px 2px; border:1px solid var(--border); }
+    .ai-msg.error .ai-bubble { background:#fdecea; color:#c0392b; border:1px solid #f5c6c6; border-radius:12px; }
+    body.dark .ai-msg.error .ai-bubble { background:#3a1a1a; color:#e07070; border-color:#6a3a3a; }
+    .ai-avatar { width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; margin-top:2px; }
+    .ai-avatar.bot { background:linear-gradient(135deg,#4a76a8,#3d6690); color:white; }
+    .ai-avatar.user { background:#4a76a8; color:white; font-weight:bold; font-size:12px; }
+    .ai-typing { display:flex; align-items:center; gap:4px; padding:10px 13px; }
+    .ai-dot { width:7px; height:7px; border-radius:50%; background:var(--text2); animation:ai-bounce .9s infinite; }
+    .ai-dot:nth-child(2) { animation-delay:.15s; }
+    .ai-dot:nth-child(3) { animation-delay:.3s; }
+    @keyframes ai-bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-6px)} }
+    .ai-input-wrap { display:flex; gap:8px; padding:10px 12px; border-top:1px solid var(--border); flex-shrink:0; align-items:flex-end; }
+    .ai-input { flex:1; padding:8px 10px; border:1px solid var(--input-border); border-radius:8px; font-size:13px; resize:none; font-family:Arial,sans-serif; color:var(--text); background:var(--input-bg); line-height:1.4; max-height:140px; overflow-y:auto; }
+    .ai-input:focus { outline:none; border-color:#4a76a8; }
+    .ai-send-btn { padding:8px 14px; align-self:flex-end; border-radius:8px; }
+    .ai-send-btn:disabled { opacity:.5; cursor:not-allowed; }
+    .ai-status { font-size:11px; color:var(--text2); text-align:center; padding:3px 12px 6px; flex-shrink:0; min-height:18px; }
+
+    .ai-toggle { display:flex; align-items:center; gap:4px; cursor:pointer; font-size:12px; color:var(--header-muted); user-select:none; }
+    .ai-toggle input { display:none; }
+    .ai-toggle-slider { width:28px; height:16px; background:rgba(255,255,255,0.2); border-radius:8px; position:relative; transition:background .2s; flex-shrink:0; }
+    .ai-toggle-slider::after { content:''; position:absolute; width:12px; height:12px; border-radius:50%; background:white; top:2px; left:2px; transition:left .2s; }
+    .ai-toggle input:checked + .ai-toggle-slider { background:#2ecc71; }
+    .ai-toggle input:checked + .ai-toggle-slider::after { left:14px; }
+
+  </style>
+</head>
+<body>
+
+<div id="auth-overlay">
+  <div id="auth-box">
+    <h2 id="auth-title">Вход в Aero Socialite</h2>
+    <div class="auth-disclaimer">Данная соц-сеть не является Vk.com/ВК. Не вводите здесь свои личные данные</div>
+    <div class="auth-err" id="auth-err"></div>
+    <input id="auth-user" placeholder="Имя пользователя"/>
+    <input id="auth-pass" type="password" placeholder="Пароль"/>
+    <button class="btn btn-blue" style="width:100%" onclick="submitAuth()">Войти</button>
+    <div class="auth-switch">
+      <span id="auth-switch-text">Нет аккаунта?</span>
+      <a onclick="toggleAuth()">Зарегистрироваться</a>
+    </div>
+    <div class="auth-divider">или</div>
+    <button id="guest-enter-btn" class="btn btn-gray" onclick="enterGuestMode()">👁️ Смотреть как гость</button>
+    <div class="guest-hint">С режимом гостя вам будет доступен просмотр информации на сайте, но вы сами же не сможете выкладывать свой контент</div>
+  </div>
+</div>
+
+<div id="header">
+  <div class="logo" style="display:flex;align-items:center;gap:7px;">
+    Aero Socialite
+  </div>
+  <div class="search-wrap"><input placeholder="Поиск"/></div>
+  <nav>
+    <button id="tab-btn-news" class="active" onclick="setTab('news')">Новости</button>
+    <button id="tab-btn-my" onclick="setTab('my')">Мои записи</button>
+    <button id="tab-btn-music" onclick="setTab('music')">🎵 Музыка</button>
+    <button id="tab-btn-ai" onclick="setTab('ai')">🤖 ИИ</button>
+    <button id="tab-btn-notifications" onclick="setTab('notifications')" style="position:relative">
+      🔔 <span id="notif-badge" style="display:none;position:absolute;top:2px;right:2px;background:#e74c3c;color:white;border-radius:50%;width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;font-weight:bold"></span>
+    </button>
+    <button id="tab-btn-profile" onclick="setTab('profile')">Профиль</button>
+    <button id="tab-btn-settings" onclick="setTab('settings')">Настройки</button>
+  </nav>
+  <span class="user-name" id="hdr-name"></span>
+  <button class="btn btn-gray btn-sm" id="hdr-logout-btn" onclick="logout()">Выйти</button>
+</div>
+
+<div id="guest-banner">
+  👁️ Вы просматриваете сайт в режиме гостя — действия недоступны
+  <button onclick="exitGuestMode()">Войти / Зарегистрироваться</button>
+</div>
+
+<div id="layout">
+  <div id="sidebar">
+    <div class="profile-mini">
+      <div class="avatar" id="sb-avatar" onclick="setTab('profile')" style="cursor:pointer"></div>
+      <div class="uname" id="sb-name">—</div>
+      <div class="usub" id="sb-bio">участник</div>
+    </div>
+    <div class="side-block">
+      <div class="side-header">Меню</div>
+      <a id="sl-news" class="active" onclick="setTab('news')">📰 Новости</a>
+      <a id="sl-my" onclick="setTab('my')">✏️ Мои записи</a>
+      <a id="sl-music" onclick="setTab('music')">🎵 Музыка</a>
+      <a id="sl-ai" onclick="setTab('ai')">🤖 ИИ Чат</a>
+      <a id="sl-notifications" onclick="setTab('notifications')">🔔 Уведомления <span id="sb-notif-count" style="display:none;background:#e74c3c;color:white;border-radius:10px;padding:0 5px;font-size:11px;margin-left:4px"></span></a>
+      <a id="sl-profile" onclick="setTab('profile')">👤 Мой профиль</a>
+      <a id="sl-settings" onclick="setTab('settings')">⚙️ Настройки</a>
+    </div>
+  </div>
+
+  <div id="main-feed">
+    <div class="write-block" id="write-block">
+      <input type="text" id="post-title" placeholder="Заголовок записи..."/>
+      <textarea id="post-content" placeholder="Что у вас нового?"></textarea>
+      <div id="post-attach-preview" class="attach-preview"></div>
+      <input type="file" id="post-file-input" multiple accept=".gif,.png,.jpg,.jpeg,.webp,.mp4,.ogg,.mp3" style="display:none" onchange="handlePostFiles(this)"/>
+      <div class="write-footer">
+        <button class="attach-btn" onclick="document.getElementById('post-file-input').click()">📎 Прикрепить</button>
+        <button class="btn btn-blue" onclick="createPost()">Опубликовать</button>
+      </div>
+    </div>
+
+    <div class="feed-tabs">
+      <button id="ftab-news" class="active" onclick="setTab('news')">Все записи</button>
+      <button id="ftab-my" onclick="setTab('my')">Мои записи</button>
+    </div>
+
+    <div id="posts-list"></div>
+
+    <div id="settings-panel" style="display:none">
+      <div class="settings-block">
+        <h3>⚙️ Настройки</h3>
+
+        <div class="settings-section">
+          <h4>Аватар</h4>
+          <div class="avatar-upload-wrap">
+            <div class="avatar-preview" id="settings-av-preview"></div>
+            <div>
+              <input type="file" id="avatar-file-input" accept=".png,.jpg,.jpeg,.gif,.webp" style="display:none" onchange="uploadAvatar(this)"/>
+              <button class="btn btn-blue btn-sm" onclick="document.getElementById('avatar-file-input').click()">📷 Загрузить фото</button>
+              <div style="font-size:12px;color:var(--text2);margin-top:6px">PNG, JPG, GIF, WebP · до 5 МБ</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>О себе</h4>
+          <textarea class="bio-input" id="bio-input" placeholder="Расскажи о себе..."></textarea>
+          <div style="margin-top:8px">
+            <button class="btn btn-blue btn-sm" onclick="saveBio()">Сохранить</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Оформление</h4>
+          <div class="theme-options">
+            <div class="theme-btn selected" id="theme-light" onclick="setTheme('light')">
+              <span class="theme-icon">☀️</span>
+              Светлая
+            </div>
+            <div class="theme-btn" id="theme-dark" onclick="setTheme('dark')">
+              <span class="theme-icon">🌙</span>
+              Тёмная
+            </div>
+            <div class="theme-btn" id="theme-summer" onclick="setTheme('summer')">
+              <span class="theme-icon">🌾</span>
+              Летняя
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="profile-panel" style="display:none">
+      <div class="profile-page">
+        <div class="profile-cover"></div>
+        <div class="profile-info">
+          <div class="profile-big-av" id="profile-big-av"></div>
+          <div class="profile-details">
+            <h2 id="profile-username"></h2>
+            <div class="profile-bio-text" id="profile-bio-text"></div>
+            <div class="profile-joined" id="profile-joined"></div>
+          </div>
+        </div>
+      </div>
+      <!-- Profile music section -->
+      <div id="profile-music-section" style="display:none; margin-top:10px;">
+        <div class="side-block" style="border-radius:8px; overflow:hidden;">
+          <div class="side-header" style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px;">
+            <span>🎵 Музыка</span>
+          </div>
+          <div id="profile-tracks-list" style="padding:8px 10px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="notifications-panel" style="display:none">
+      <div class="settings-block">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <h3 style="margin:0">🔔 Уведомления</h3>
+          <button class="btn btn-gray btn-sm" onclick="markAllRead()">Отметить все как прочитанные</button>
+        </div>
+        <div id="notifications-list"><div style="color:var(--text2);text-align:center;padding:20px">Загрузка...</div></div>
+      </div>
+    </div>
+
+    <div id="ai-panel" style="display:none">
+      <div class="ai-chat-wrap">
+        <div class="ai-chat-header">
+          <span>🤖 ИИ Чат</span>
+          <div class="ai-header-right">
+            <select id="ai-model-select" class="ai-model-sel">
+              <option value="qwen3:8b">qwen3:8b</option>
+              <option value="moondream">moondream 👁</option>
+              <option value="qwen3:latest">qwen3:latest</option>
+            </select>
+            <label class="ai-toggle" title="Поиск в интернете">
+              🌐 <input type="checkbox" id="ai-web-search"> <span class="ai-toggle-slider"></span>
+            </label>
+            <button class="btn btn-gray btn-sm" onclick="clearAiChat()">🗑</button>
+          </div>
+        </div>
+        <div class="ai-messages" id="ai-messages">
+          <div class="ai-welcome">
+            <div style="font-size:32px;margin-bottom:8px">🤖</div>
+            <div style="font-weight:bold;margin-bottom:4px">Привет! Я ИИ через Ollama.</div>
+            <div style="font-size:12px;color:var(--text2)">Задай вопрос, прикрепи картинку или включи 🌐 для поиска в интернете.</div>
+          </div>
+        </div>
+        <div id="ai-img-preview" style="display:none;padding:6px 12px;border-top:1px solid var(--border)">
+          <div style="position:relative;display:inline-block">
+            <img id="ai-img-thumb" style="max-height:80px;max-width:160px;border-radius:6px;border:1px solid var(--border)"/>
+            <button onclick="clearAiImage()" style="position:absolute;top:-6px;right:-6px;background:#e74c3c;color:white;border:none;border-radius:50%;width:18px;height:18px;font-size:11px;cursor:pointer;line-height:1">✕</button>
+          </div>
+        </div>
+        <div class="ai-input-wrap">
+          <button class="attach-btn" onclick="document.getElementById('ai-img-input').click()" title="Прикрепить изображение" style="padding:7px 10px;flex-shrink:0">🖼</button>
+          <input type="file" id="ai-img-input" accept="image/*" style="display:none" onchange="handleAiImage(this)"/>
+          <textarea id="ai-input" class="ai-input" placeholder="Напиши сообщение..." rows="1"
+            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAiMessage()}"
+            oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
+          <button class="btn btn-blue ai-send-btn" id="ai-send-btn" onclick="sendAiMessage()">▶</button>
+        </div>
+        <div class="ai-status" id="ai-status"></div>
+      </div>
+    </div>
+
+    <div id="music-panel" style="display:none">
+      <!-- Upload form -->
+      <div class="music-upload-card" id="music-upload-card">
+        <div class="music-upload-header" onclick="toggleMusicUpload()">
+          <span>🎵 Загрузить трек</span>
+          <span id="music-upload-arrow">▾</span>
+        </div>
+        <div class="music-upload-body" id="music-upload-body" style="display:none">
+          <div class="music-cover-row">
+            <div class="music-cover-pick" id="music-cover-pick" onclick="document.getElementById('music-cover-input').click()">
+              <div id="music-cover-preview-wrap">
+                <span style="font-size:32px">🖼</span>
+                <div style="font-size:12px;color:var(--text2);margin-top:6px">Обложка</div>
+              </div>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+              <input type="text" id="music-title-input" class="music-text-input" placeholder="Название трека"/>
+              <input type="text" id="music-artist-input" class="music-text-input" placeholder="Исполнитель"/>
+              <input type="file" id="music-cover-input" accept=".jpg,.jpeg,.png,.webp,.gif" style="display:none" onchange="previewMusicCover(this)" onclick="event.stopPropagation()"/>
+            </div>
+          </div>
+          <div class="music-audio-pick" id="music-audio-pick" onclick="document.getElementById('music-audio-input').click()">
+            <span id="music-audio-label">🎵 Выбрать аудиофайл (MP3, OGG, WAV, FLAC…)</span>
+          </div>
+          <input type="file" id="music-audio-input" accept="audio/*" style="display:none" onchange="onMusicAudioPick(this)"/>
+          <div style="margin-top:10px;display:flex;justify-content:flex-end">
+            <button class="btn btn-blue" onclick="uploadTrack(this)">Опубликовать</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Track list -->
+      <div id="music-search-bar" style="margin-bottom:8px">
+        <input type="text" id="music-search" class="music-text-input" placeholder="🔍 Поиск треков..." oninput="filterTracks()" style="width:100%"/>
+      </div>
+      <div id="tracks-list"></div>
+    </div>
+  </div>
+</div>
+
+<div id="lightbox" onclick="closeLightbox()"><img id="lb-img" src="" style="display:none"/><video id="lb-video" controls style="display:none"></video></div>
+<div id="toast"></div>
+
+<!-- Global floating music player (persists across all tabs) -->
+<div class="music-player" id="music-player" style="display:none">
+  <div class="mp-drag-handle"></div>
+  <div class="mp-cover" id="mp-cover">🎵</div>
+  <div class="mp-info">
+    <div class="mp-title" id="mp-title">—</div>
+    <div class="mp-artist" id="mp-artist">—</div>
+  </div>
+  <div class="mp-controls">
+    <button class="mp-btn mp-repeat-btn" id="mp-repeat-btn" onclick="cycleRepeat()" title="Повтор">🔁</button>
+    <button class="mp-btn" onclick="skipTrack(-1)">⏮</button>
+    <button class="mp-btn mp-play" id="mp-play-btn" onclick="togglePlay()">▶</button>
+    <button class="mp-btn" onclick="skipTrack(1)">⏭</button>
+  </div>
+  <div class="mp-progress-wrap">
+    <span class="mp-time" id="mp-cur">0:00</span>
+    <input type="range" class="mp-progress" id="mp-progress" value="0" min="0" max="100" step="0.1" oninput="seekAudio(this.value)"/>
+    <span class="mp-time" id="mp-dur">0:00</span>
+  </div>
+  <div class="mp-vol">
+    🔊 <input type="range" id="mp-vol" value="80" min="0" max="100" oninput="setVolume(this.value)"/>
+  </div>
+</div>
+
+<!-- Mobile bottom navigation -->
+<nav id="bottom-nav">
+  <button id="bn-news" class="active" onclick="setTab('news')">
+    <span class="bn-icon">📰</span>
+    <span class="bn-label">Новости</span>
+  </button>
+  <button id="bn-music" onclick="setTab('music')">
+    <span class="bn-icon">🎵</span>
+    <span class="bn-label">Музыка</span>
+  </button>
+  <button id="bn-notifications" onclick="setTab('notifications')">
+    <span class="bn-icon">🔔</span>
+    <span class="bn-label">Уведомления</span>
+    <span class="bn-badge" id="bn-notif-badge" style="display:none"></span>
+  </button>
+  <button id="bn-profile" onclick="setTab('profile')">
+    <span class="bn-icon">👤</span>
+    <span class="bn-label">Профиль</span>
+  </button>
+  <button id="bn-settings" onclick="setTab('settings')">
+    <span class="bn-icon">⚙️</span>
+    <span class="bn-label">Настройки</span>
+  </button>
+</nav>
+
+<script>
+  let authMode = 'login';
+  let currentTab = 'news';
+  let me = null;
+  let postPendingAttachments = []; // [{url,name,mime}]
+  let amAdmin = false;
+  let isGuest = false;
+
+  async function checkAdmin() {
+    const r = await api('GET', '/api/is-admin');
+    amAdmin = r && r.admin;
   }
-  // Notify post owner (not self)
-  const postOwner = await pool.query('SELECT user_id FROM posts WHERE id=$1', [req.params.id]);
-  if (postOwner.rows[0] && postOwner.rows[0].user_id !== req.session.userId) {
-    await pool.query(
-      'INSERT INTO notifications (user_id, actor_id, type, post_id, comment_id) VALUES ($1, $2, $3, $4, $5)',
-      [postOwner.rows[0].user_id, req.session.userId, 'comment', req.params.id, commentId]
-    );
-  }
-  res.json(rows[0]);
-});
 
-app.delete('/api/comments/:id', requireAuth, async (req, res) => {
-  const userId = req.session.userId;
-  const admin = await isAdmin(userId);
-  if (admin) {
-    await pool.query('DELETE FROM comments WHERE id=$1', [req.params.id]);
-  } else {
-    await pool.query('DELETE FROM comments WHERE id=$1 AND user_id=$2', [req.params.id, userId]);
-  }
-  res.json({ ok: true });
-});
-
-// ── DELETE FILE FROM POST (admin only) ───────────────
-app.delete('/api/file/:id', requireAuth, async (req, res) => {
-  const admin = await isAdmin(req.session.userId);
-  if (!admin) return res.status(403).json({ error: 'Нет доступа' });
-  await pool.query('DELETE FROM post_files WHERE id = $1', [req.params.id]);
-  res.json({ ok: true });
-});
-
-// ── ADMIN CHECK ──────────────────────────────────────
-app.get('/api/is-admin', requireAuth, async (req, res) => {
-  res.json({ admin: await isAdmin(req.session.userId) });
-});
-
-// ── NOTIFICATIONS ────────────────────────────────────
-app.get('/api/notifications', requireAuth, async (req, res) => {
-  const { rows } = await pool.query(`
-    SELECT n.id, n.type, n.is_read, n.created_at, n.post_id, n.comment_id,
-      u.username AS actor_username, (u.avatar_data IS NOT NULL) AS actor_has_avatar, u.id AS actor_id,
-      p.title AS post_title
-    FROM notifications n
-    JOIN users u ON n.actor_id = u.id
-    LEFT JOIN posts p ON n.post_id = p.id
-    WHERE n.user_id = $1
-    ORDER BY n.created_at DESC
-    LIMIT 50
-  `, [req.session.userId]);
-  res.json(rows.map(r => ({
-    ...r,
-    actor_avatar: r.actor_has_avatar ? `/api/avatar/${r.actor_id}` : ''
-  })));
-});
-
-app.get('/api/notifications/unread-count', requireAuth, async (req, res) => {
-  const { rows } = await pool.query(
-    'SELECT COUNT(*) AS count FROM notifications WHERE user_id=$1 AND is_read=FALSE',
-    [req.session.userId]
-  );
-  res.json({ count: parseInt(rows[0].count) });
-});
-
-app.post('/api/notifications/read-all', requireAuth, async (req, res) => {
-  await pool.query('UPDATE notifications SET is_read=TRUE WHERE user_id=$1', [req.session.userId]);
-  res.json({ ok: true });
-});
-
-app.post('/api/notifications/:id/read', requireAuth, async (req, res) => {
-  await pool.query('UPDATE notifications SET is_read=TRUE WHERE id=$1 AND user_id=$2', [req.params.id, req.session.userId]);
-  res.json({ ok: true });
-});
-
-// ── MUSIC ────────────────────────────────────────────
-const AUDIO_MIME = new Set(['audio/mpeg','audio/mp3','audio/ogg','audio/wav','audio/flac','audio/aac','audio/x-m4a']);
-const COVER_MIME = new Set(['image/jpeg','image/png','image/webp','image/gif']);
-
-const trackAudioUpload = multer({
-  storage: memStorage,
-  limits: { fileSize: 100 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (file.fieldname === 'audio' && AUDIO_MIME.has(file.mimetype)) cb(null, true);
-    else if (file.fieldname === 'cover' && COVER_MIME.has(file.mimetype)) cb(null, true);
-    else cb(new Error('Недопустимый тип файла'));
-  },
-}).fields([{ name:'audio', maxCount:1 }, { name:'cover', maxCount:1 }]);
-
-app.get('/api/tracks', async (req, res) => {
-  const userId = req.session.userId || 0;
-  const { rows } = await pool.query(`
-    SELECT t.id, t.title, t.artist, t.audio_mime, t.audio_size, t.plays, t.created_at,
-      (t.cover_data IS NOT NULL) AS has_cover,
-      u.username, u.id AS user_id,
-      (SELECT COUNT(*) FROM track_likes WHERE track_id = t.id) AS likes_count,
-      (SELECT COUNT(*) FROM track_likes WHERE track_id = t.id AND user_id = $1) AS user_liked
-    FROM tracks t JOIN users u ON t.user_id = u.id
-    ORDER BY t.created_at DESC
-  `, [userId]);
-  res.json(rows.map(r => ({ ...r, cover: r.has_cover ? `/api/tracks/${r.id}/cover` : null })));
-});
-
-app.post('/api/tracks', requireAuth, (req, res) => {
-  trackAudioUpload(req, res, async (err) => {
-    if (err) return res.status(400).json({ error: err.message });
-    const audioFile = req.files && req.files.audio && req.files.audio[0];
-    const coverFile = req.files && req.files.cover && req.files.cover[0];
-    if (!audioFile) return res.status(400).json({ error: 'Аудиофайл обязателен' });
-    const { title, artist } = req.body;
-    if (!title || !artist) return res.status(400).json({ error: 'Укажите название и исполнителя' });
-    const { rows } = await pool.query(
-      `INSERT INTO tracks (user_id, title, artist, audio_data, audio_mime, audio_size, cover_data, cover_mime)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-      [req.session.userId, title, artist,
-       audioFile.buffer, audioFile.mimetype, audioFile.size,
-       coverFile ? coverFile.buffer : null,
-       coverFile ? coverFile.mimetype : null]
-    );
-    res.json({ id: rows[0].id });
-  });
-});
-
-app.get('/api/tracks/:id/audio', async (req, res) => {
-  const { rows } = await pool.query('SELECT audio_data, audio_mime FROM tracks WHERE id=$1', [req.params.id]);
-  if (!rows[0]) return res.status(404).end();
-  await pool.query('UPDATE tracks SET plays = plays + 1 WHERE id=$1', [req.params.id]);
-  res.set('Content-Type', rows[0].audio_mime);
-  res.set('Accept-Ranges', 'bytes');
-  res.set('Cache-Control', 'public, max-age=86400');
-  res.send(rows[0].audio_data);
-});
-
-app.get('/api/tracks/:id/cover', async (req, res) => {
-  const { rows } = await pool.query('SELECT cover_data, cover_mime FROM tracks WHERE id=$1', [req.params.id]);
-  if (!rows[0] || !rows[0].cover_data) return res.status(404).end();
-  res.set('Content-Type', rows[0].cover_mime);
-  res.set('Cache-Control', 'public, max-age=86400');
-  res.send(rows[0].cover_data);
-});
-
-app.post('/api/tracks/:id/like', requireAuth, async (req, res) => {
-  const { rows } = await pool.query('SELECT id FROM track_likes WHERE track_id=$1 AND user_id=$2', [req.params.id, req.session.userId]);
-  if (rows[0]) {
-    await pool.query('DELETE FROM track_likes WHERE track_id=$1 AND user_id=$2', [req.params.id, req.session.userId]);
-    res.json({ liked: false });
-  } else {
-    await pool.query('INSERT INTO track_likes (track_id, user_id) VALUES ($1,$2)', [req.params.id, req.session.userId]);
-    res.json({ liked: true });
-  }
-});
-
-app.delete('/api/tracks/:id', requireAuth, async (req, res) => {
-  const userId = req.session.userId;
-  const admin = await isAdmin(userId);
-  if (admin) {
-    await pool.query('DELETE FROM tracks WHERE id=$1', [req.params.id]);
-  } else {
-    await pool.query('DELETE FROM tracks WHERE id=$1 AND user_id=$2', [req.params.id, userId]);
-  }
-  res.json({ ok: true });
-});
-
-// ── AI PROXY (Ollama via tunnel) ─────────────────────
-const OLLAMA_TUNNEL = process.env.OLLAMA_TUNNEL || 'https://pvujd-83-168-88-27.free.pinggy.net';
-
-app.post('/api/ai/chat', async (req, res) => {
-  try {
-    const ollamaRes = await fetch(`${OLLAMA_TUNNEL}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req.body),
+  async function api(method, url, body) {
+    if (isGuest && method !== 'GET') {
+      toast('Войдите, чтобы выполнить это действие', '#e74c3c');
+      return { error: 'guest_mode' };
+    }
+    const r = await fetch(url, {
+      method,
+      headers: {'Content-Type':'application/json'},
+      body: body ? JSON.stringify(body) : undefined
     });
-
-    if (!ollamaRes.ok) {
-      const text = await ollamaRes.text();
-      return res.status(ollamaRes.status).json({ error: text });
-    }
-
-    res.setHeader('Content-Type', 'application/x-ndjson');
-
-    const reader = ollamaRes.body.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(value);
-    }
-    res.end();
-  } catch (e) {
-    res.status(500).json({ error: 'Ollama недоступен: ' + e.message });
+    return r.json();
   }
-});
 
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+  function toast(msg, color) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.background = color || '#2ecc71';
+    t.style.display = 'block';
+    setTimeout(() => t.style.display = 'none', 2000);
+  }
 
-initDB().then(() => {
-  app.listen(PORT, () => console.log(`🚀 http://localhost:${PORT}`));
-}).catch(err => { console.error('❌ Ошибка БД:', err.message); process.exit(1); });
+  // ── THEME ─────────────────────────────────────────
+  function setTheme(theme) {
+    document.body.classList.remove('dark', 'summer');
+    if (theme === 'dark') document.body.classList.add('dark');
+    if (theme === 'summer') document.body.classList.add('summer');
+    document.getElementById('theme-light').classList.toggle('selected', theme === 'light');
+    document.getElementById('theme-dark').classList.toggle('selected', theme === 'dark');
+    document.getElementById('theme-summer').classList.toggle('selected', theme === 'summer');
+    localStorage.setItem('theme', theme);
+  }
+
+  // ── AUTH ──────────────────────────────────────────
+  function toggleAuth() {
+    authMode = authMode === 'login' ? 'register' : 'login';
+    document.getElementById('auth-title').textContent = authMode === 'login' ? 'Вход в Aero Socialite' : 'Регистрация';
+    document.querySelector('#auth-box button').textContent = authMode === 'login' ? 'Войти' : 'Зарегистрироваться';
+    document.getElementById('auth-switch-text').textContent = authMode === 'login' ? 'Нет аккаунта?' : 'Уже есть аккаунт?';
+    document.querySelector('.auth-switch a').textContent = authMode === 'login' ? 'Зарегистрироваться' : 'Войти';
+    document.getElementById('auth-err').textContent = '';
+  }
+
+  async function submitAuth() {
+    const username = document.getElementById('auth-user').value.trim();
+    const password = document.getElementById('auth-pass').value;
+    const url = authMode === 'login' ? '/api/login' : '/api/register';
+    const data = await api('POST', url, {username, password});
+    if (data.error) { document.getElementById('auth-err').textContent = data.error; return; }
+    // Fetch full profile (bio, avatar)
+    const full = await api('GET', '/api/me');
+    me = full && full.id ? full : data.user;
+    onLogin();
+  }
+
+  function renderAvatar(el, user, size) {
+    if (!el) return;
+    if (user.avatar) {
+      el.innerHTML = `<img src="${user.avatar}" alt="${user.username}"/>`;
+    } else {
+      el.textContent = user.username[0].toUpperCase();
+    }
+  }
+
+  async function onLogin() {
+    document.getElementById('auth-overlay').style.display = 'none';
+    document.getElementById('hdr-name').textContent = me.username;
+    document.getElementById('sb-name').textContent = me.username;
+    document.getElementById('sb-bio').textContent = me.bio || 'участник';
+    renderAvatar(document.getElementById('sb-avatar'), me);
+    await checkAdmin();
+    // Populate settings
+    const bioInput = document.getElementById('bio-input');
+    if (bioInput) bioInput.value = me.bio || '';
+    renderAvatar(document.getElementById('settings-av-preview'), me);
+    loadPosts();
+    updateNotifBadge();
+    setInterval(updateNotifBadge, 30000);
+  }
+
+  async function logout() {
+    await api('POST', '/api/logout');
+    me = null;
+    document.getElementById('auth-overlay').style.display = 'flex';
+    document.getElementById('posts-list').innerHTML = '';
+  }
+
+  // ── GUEST MODE ────────────────────────────────────
+  function enterGuestMode() {
+    isGuest = true;
+    me = null;
+    document.body.classList.add('guest-mode');
+    document.getElementById('auth-overlay').style.display = 'none';
+    document.getElementById('hdr-name').textContent = 'Гость';
+    document.getElementById('hdr-logout-btn').textContent = 'Войти';
+    document.getElementById('hdr-logout-btn').setAttribute('onclick', 'exitGuestMode()');
+    document.getElementById('sb-name').textContent = 'Гость';
+    document.getElementById('sb-bio').textContent = 'режим просмотра';
+    const sbAv = document.getElementById('sb-avatar');
+    if (sbAv) sbAv.textContent = '👁️';
+    loadPosts();
+    toast('Вы в режиме гостя — только просмотр', '#f5a623');
+  }
+
+  function exitGuestMode() {
+    isGuest = false;
+    document.body.classList.remove('guest-mode');
+    document.getElementById('auth-overlay').style.display = 'flex';
+    document.getElementById('hdr-logout-btn').textContent = 'Выйти';
+    document.getElementById('hdr-logout-btn').setAttribute('onclick', 'logout()');
+    document.getElementById('posts-list').innerHTML = '';
+  }
+
+  // Guard against all write-interactions in guest mode, even on dynamically
+  // rendered elements (posts, comments, tracks, etc.) added after the fact.
+  const GUEST_BLOCK_SELECTOR = [
+    '.post-action', '.write-block textarea', '.write-block input', '.write-footer button',
+    '#bio-input', '.avatar-upload-wrap input', '.avatar-upload-wrap button',
+    '.settings-section button', '.settings-section input', '.settings-section textarea',
+    '.comment-input', '.comment-submit', 'input[type=file]', '.track-upload',
+    '.like-btn', '.mp-like-btn', '[onclick*="likeTrack"]', '[onclick*="deleteTrack"]',
+    '[onclick*="likePost"]', '[onclick*="deletePost"]', '[onclick*="editPost"]',
+    '[onclick*="submitComment"]', '[onclick*="addComment"]', '[onclick*="uploadAvatar"]',
+    '[onclick*="saveBio"]', '[onclick*="saveSettings"]', '[onclick*="submitPost"]',
+    '#music-upload-card', '[onclick*="toggleMusicUpload"]', '[onclick*="uploadTrack"]',
+    '[onclick*="onMusicAudioPick"]', '[onclick*="previewMusicCover"]', '#music-cover-pick',
+    '#music-audio-pick'
+  ].join(',');
+
+  document.addEventListener('click', function(e) {
+    if (!isGuest) return;
+    const blocked = e.target.closest(GUEST_BLOCK_SELECTOR);
+    if (blocked) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      toast('Войдите, чтобы выполнить это действие', '#e74c3c');
+    }
+  }, true);
+
+  document.addEventListener('focusin', function(e) {
+    if (!isGuest) return;
+    if (e.target.closest(GUEST_BLOCK_SELECTOR)) {
+      e.target.blur();
+    }
+  }, true);
+
+  // ── TABS ──────────────────────────────────────────
+  function setTab(tab) {
+    currentTab = tab;
+    ['news','my','settings','profile','notifications','music','ai'].forEach(t => {
+      const btn = document.getElementById('tab-btn-' + t);
+      const sl = document.getElementById('sl-' + t);
+      const bn = document.getElementById('bn-' + t);
+      if (btn) btn.classList.toggle('active', t === tab);
+      if (sl) sl.classList.toggle('active', t === tab);
+      if (bn) bn.classList.toggle('active', t === tab);
+    });
+    ['news','my'].forEach(t => {
+      const fb = document.getElementById('ftab-' + t);
+      if (fb) fb.classList.toggle('active', t === tab);
+    });
+    const isContent = tab === 'news' || tab === 'my';
+    document.getElementById('write-block').style.display = isContent ? 'block' : 'none';
+    document.getElementById('posts-list').style.display = isContent ? 'block' : 'none';
+    document.querySelector('.feed-tabs').style.display = isContent ? 'flex' : 'none';
+    document.getElementById('settings-panel').style.display = tab === 'settings' ? 'block' : 'none';
+    document.getElementById('profile-panel').style.display = tab === 'profile' ? 'block' : 'none';
+    document.getElementById('notifications-panel').style.display = tab === 'notifications' ? 'block' : 'none';
+    document.getElementById('music-panel').style.display = tab === 'music' ? 'block' : 'none';
+    document.getElementById('ai-panel').style.display = tab === 'ai' ? 'block' : 'none';
+    if (tab === 'settings' && me) {
+      document.getElementById('bio-input').value = me.bio || '';
+      renderAvatar(document.getElementById('settings-av-preview'), me);
+    }
+    if (tab === 'profile') loadProfile(null);
+    if (tab === 'notifications') loadNotifications();
+    if (tab === 'music') loadTracks();
+    if (isContent) loadPosts();
+  }
+
+  // ── ATTACHMENTS ───────────────────────────────────
+  function mimeIcon(mime) {
+    if (mime.startsWith('image/')) return '🖼';
+    if (mime.startsWith('video/')) return '🎬';
+    if (mime.startsWith('audio/')) return '🎵';
+    return '📄';
+  }
+
+  function renderAttachThumb(att, idx, removeCallback) {
+    const name = att.name || att.url.split('/').pop();
+    let media = '';
+    if (att.mime.startsWith('image/')) {
+      media = `<img src="${att.url}" alt="${name}"/>`;
+    } else if (att.mime.startsWith('video/')) {
+      media = `<video src="${att.url}" muted></video>`;
+    } else if (att.mime.startsWith('audio/')) {
+      media = `<audio src="${att.url}" controls></audio>`;
+    }
+    return `<div class="attach-thumb">
+      ${media}
+      <div class="attach-file-name">${mimeIcon(att.mime)} ${name}</div>
+      ${removeCallback ? `<button class="rm-attach" onclick="${removeCallback}(${idx})" title="Удалить">✕</button>` : ''}
+    </div>`;
+  }
+
+  function renderAttachments(attachments, cls='post-attachments') {
+    if (!attachments || !attachments.length) return '';
+    return `<div class="${cls}">` + attachments.map(att => {
+      const name = att.name || att.url.split('/').pop();
+      if (att.mime.startsWith('image/')) {
+        return `<img src="${att.url}" alt="${name}" onclick="openLightbox('img','${att.url}')" title="${name}"/>`;
+      } else if (att.mime.startsWith('video/')) {
+        return `<video src="${att.url}" controls onclick="event.stopPropagation()"></video>`;
+      } else if (att.mime.startsWith('audio/')) {
+        return `<audio src="${att.url}" controls></audio>`;
+      }
+      return '';
+    }).join('') + `</div>`;
+  }
+
+  async function uploadFiles(files) {
+    const fd = new FormData();
+    for (const f of files) fd.append('files', f);
+    const r = await fetch('/api/upload', { method:'POST', body:fd });
+    const data = await r.json();
+    if (data.error) { toast(data.error, '#e74c3c'); return []; }
+    return data.files;
+  }
+
+  // Post attachment handlers
+  async function handlePostFiles(input) {
+    if (!input.files.length) return;
+    const uploaded = await uploadFiles(input.files);
+    postPendingAttachments.push(...uploaded);
+    renderPostPreview();
+    input.value = '';
+  }
+
+  function renderPostPreview() {
+    const container = document.getElementById('post-attach-preview');
+    container.innerHTML = postPendingAttachments.map((a, i) => renderAttachThumb(a, i, 'removePostAttach')).join('');
+  }
+
+  function removePostAttach(idx) {
+    postPendingAttachments.splice(idx, 1);
+    renderPostPreview();
+  }
+
+  // Lightbox
+  function openLightbox(type, src) {
+    const lb = document.getElementById('lightbox');
+    const img = document.getElementById('lb-img');
+    const vid = document.getElementById('lb-video');
+    if (type === 'img') { img.src = src; img.style.display='block'; vid.style.display='none'; }
+    else { vid.src = src; vid.style.display='block'; img.style.display='none'; }
+    lb.classList.add('open');
+  }
+  function closeLightbox() {
+    document.getElementById('lightbox').classList.remove('open');
+    document.getElementById('lb-video').pause && document.getElementById('lb-video').pause();
+  }
+
+  // ── POSTS ─────────────────────────────────────────
+  async function loadPosts() {
+    const posts = await api('GET', '/api/posts');
+    const list = document.getElementById('posts-list');
+    let filtered = posts;
+    if (currentTab === 'my' && me) filtered = posts.filter(p => p.user_id === me.id);
+    if (!filtered.length) {
+      list.innerHTML = '<div class="empty">Записей пока нет</div>';
+      return;
+    }
+    list.innerHTML = filtered.map(p => renderPost(p)).join('');
+  }
+
+  function renderPost(p) {
+    const init = p.username ? p.username[0].toUpperCase() : '?';
+    const avatarHtml = p.avatar
+      ? `<img src="${p.avatar}" alt="${p.username}"/>`
+      : init;
+    const date = new Date(p.created_at).toLocaleString('ru', {day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'});
+    const liked = parseInt(p.user_liked) > 0;
+    const likes = parseInt(p.likes_count) || 0;
+    const cmts = parseInt(p.comments_count) || 0;
+    const canDel = me && (p.user_id === me.id || amAdmin);
+    const canEdit = me && (p.user_id === me.id || amAdmin);
+    const atts = Array.isArray(p.attachments) ? p.attachments : (p.attachments ? JSON.parse(p.attachments) : []);
+    return `<div class="post-card" id="post-${p.id}">
+      <div class="post-top">
+        <div class="post-avatar user-avatar" onclick="openUserProfile(${p.user_id})">${avatarHtml}</div>
+        <div class="post-meta">
+          <div class="post-author" onclick="openUserProfile(${p.user_id})" style="cursor:pointer">${p.username}</div>
+          <div class="post-time">${date}</div>
+        </div>
+      </div>
+      <div class="post-body" id="post-body-${p.id}">
+        ${p.title ? `<div class="post-title-text" id="post-title-${p.id}">${p.title}</div>` : ''}
+        <div id="post-content-${p.id}">${p.content || ''}</div>
+        <div id="post-atts-${p.id}">${renderAttachments(atts, 'post-attachments')}</div>
+      </div>
+      <div id="post-edit-form-${p.id}" style="display:none; padding:8px 12px; border-top:1px solid var(--border)">
+        <input type="text" id="edit-title-${p.id}" style="width:100%;padding:6px 8px;border:1px solid var(--input-border);border-radius:3px;font-size:13px;margin-bottom:6px;background:var(--input-bg);color:var(--text)" placeholder="Заголовок"/>
+        <textarea id="edit-content-${p.id}" style="width:100%;padding:6px 8px;border:1px solid var(--input-border);border-radius:3px;font-size:13px;min-height:60px;resize:vertical;font-family:Arial,sans-serif;background:var(--input-bg);color:var(--text)" placeholder="Текст"></textarea>
+        <div id="edit-cur-atts-${p.id}" style="margin:6px 0;display:flex;flex-wrap:wrap;gap:6px"></div>
+        <div id="edit-new-preview-${p.id}" class="attach-preview"></div>
+        <input type="file" id="edit-file-${p.id}" multiple accept=".gif,.png,.jpg,.jpeg,.webp,.mp4,.ogg,.mp3" style="display:none" onchange="handleEditFiles(${p.id},this)"/>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+          <button class="attach-btn" onclick="document.getElementById('edit-file-${p.id}').click()">📎 Добавить файл</button>
+          <button class="btn btn-blue btn-sm" onclick="savePostEdit(${p.id})">💾 Сохранить</button>
+          <button class="btn btn-gray btn-sm" onclick="cancelPostEdit(${p.id})">Отмена</button>
+        </div>
+      </div>
+      <div class="post-footer">
+        <button class="post-action ${liked ? 'liked' : ''}" onclick="toggleLike(${p.id}, this)">
+          👍 Нравится${likes > 0 ? ' · ' + likes : ''}
+        </button>
+        <button class="post-action" onclick="toggleComments(${p.id})">
+          💬 Комментарии${cmts > 0 ? ' · ' + cmts : ''}
+        </button>
+        ${canEdit ? `<button class="del-btn" style="color:var(--text3)" onclick="startPostEdit(${p.id})">✏️ Изменить</button>` : ''}
+        ${canDel ? `<button class="del-btn" onclick="deletePost(${p.id})">✕ Удалить</button>` : ''}
+      </div>
+      <div class="comments-section" id="cmts-${p.id}">
+        <div id="cmts-list-${p.id}"></div>
+        <div class="comment-form">
+          <input id="cmts-input-${p.id}" placeholder="Написать комментарий..." onkeydown="if(event.key==='Enter')addComment(${p.id})"/>
+          <input type="file" id="cmts-file-${p.id}" multiple accept=".gif,.png,.jpg,.jpeg,.webp,.mp4,.ogg,.mp3" style="display:none" onchange="handleCmtFiles(${p.id},this)"/>
+          <button class="attach-btn btn-sm" onclick="document.getElementById('cmts-file-${p.id}').click()" title="Прикрепить">📎</button>
+          <button class="btn btn-blue btn-sm" onclick="addComment(${p.id})">Отправить</button>
+        </div>
+        <div id="cmts-attach-preview-${p.id}" class="attach-preview" style="margin-top:6px"></div>
+      </div>
+    </div>`;
+  }
+
+  async function createPost() {
+    const title = document.getElementById('post-title').value.trim();
+    const content = document.getElementById('post-content').value.trim();
+    if (!title && !content && !postPendingAttachments.length) return;
+    const data = await api('POST', '/api/posts', {title: title || ' ', content, attachments: postPendingAttachments});
+    if (data.error) { toast(data.error, '#e74c3c'); return; }
+    document.getElementById('post-title').value = '';
+    document.getElementById('post-content').value = '';
+    postPendingAttachments = [];
+    renderPostPreview();
+    loadPosts();
+    toast('Запись опубликована!');
+  }
+
+  async function deletePost(id) {
+    await api('DELETE', `/api/posts/${id}`);
+    loadPosts();
+    toast('Запись удалена', '#e74c3c');
+  }
+
+  // ── POST EDIT (admin / owner) ──────────────────────
+  const editPendingAttachments = {};
+
+  function startPostEdit(postId) {
+    const titleEl = document.getElementById(`post-title-${postId}`);
+    const contentEl = document.getElementById(`post-content-${postId}`);
+    document.getElementById(`edit-title-${postId}`).value = titleEl ? titleEl.textContent : '';
+    document.getElementById(`edit-content-${postId}`).value = contentEl ? contentEl.textContent : '';
+    editPendingAttachments[postId] = [];
+    // Show current attachments with remove buttons
+    const attsDiv = document.getElementById(`post-atts-${postId}`);
+    const curDiv = document.getElementById(`edit-cur-atts-${postId}`);
+    const imgs = attsDiv.querySelectorAll('img[src], video[src], audio[src]');
+    curDiv.innerHTML = '';
+    attsDiv.querySelectorAll('[data-file-id]').forEach(el => {
+      const fid = el.dataset.fileId;
+      const name = el.dataset.fileName || fid;
+      curDiv.innerHTML += `<div id="edit-cur-file-${fid}" style="display:inline-flex;align-items:center;gap:4px;background:var(--comment-bg);border-radius:3px;padding:3px 8px;font-size:12px">
+        📎 ${name} <button onclick="removeEditCurFile(${postId},${fid})" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:13px;line-height:1">✕</button>
+      </div>`;
+    });
+    // fallback: parse from rendered attachment urls
+    if (!curDiv.innerHTML) {
+      attsDiv.querySelectorAll('img,video,audio').forEach((el, i) => {
+        const src = el.src || el.currentSrc || '';
+        const m = src.match(/\/api\/file\/(\d+)/);
+        if (!m) return;
+        const fid = m[1];
+        curDiv.innerHTML += `<div id="edit-cur-file-${fid}" style="display:inline-flex;align-items:center;gap:4px;background:var(--comment-bg);border-radius:3px;padding:3px 8px;font-size:12px">
+          📎 файл ${fid} <button onclick="removeEditCurFile(${postId},${fid})" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:13px;line-height:1">✕</button>
+        </div>`;
+      });
+    }
+    document.getElementById(`post-edit-form-${postId}`).style.display = 'block';
+    document.getElementById(`post-body-${postId}`).style.display = 'none';
+  }
+
+  function removeEditCurFile(postId, fileId) {
+    const el = document.getElementById(`edit-cur-file-${fileId}`);
+    if (el) el.remove();
+    if (!editPendingAttachments[postId]) editPendingAttachments[postId] = [];
+    editPendingAttachments[postId]._removeIds = editPendingAttachments[postId]._removeIds || [];
+    editPendingAttachments[postId]._removeIds.push(fileId);
+  }
+
+  async function handleEditFiles(postId, input) {
+    if (!input.files.length) return;
+    const uploaded = await uploadFiles(input.files);
+    if (!editPendingAttachments[postId]) editPendingAttachments[postId] = [];
+    editPendingAttachments[postId].push(...uploaded);
+    renderEditPreview(postId);
+    input.value = '';
+  }
+
+  function renderEditPreview(postId) {
+    const container = document.getElementById(`edit-new-preview-${postId}`);
+    if (!container) return;
+    const atts = (editPendingAttachments[postId] || []).filter(a => a && a.url);
+    container.innerHTML = atts.map((a, i) => {
+      const name = a.name || a.url.split('/').pop();
+      let media = '';
+      if (a.mime && a.mime.startsWith('image/')) media = `<img src="${a.url}" alt="${name}"/>`;
+      else if (a.mime && a.mime.startsWith('video/')) media = `<video src="${a.url}" muted></video>`;
+      return `<div class="attach-thumb">${media}<div class="attach-file-name">📎 ${name}</div>
+        <button class="rm-attach" onclick="removeEditNewFile(${postId},${i})">✕</button></div>`;
+    }).join('');
+  }
+
+  function removeEditNewFile(postId, idx) {
+    if (editPendingAttachments[postId]) editPendingAttachments[postId].splice(idx, 1);
+    renderEditPreview(postId);
+  }
+
+  async function savePostEdit(postId) {
+    const title = document.getElementById(`edit-title-${postId}`).value.trim();
+    const content = document.getElementById(`edit-content-${postId}`).value.trim();
+    const pending = editPendingAttachments[postId] || [];
+    const removeFileIds = pending._removeIds || [];
+    const addAttachments = pending.filter(a => a && a.id);
+    await api('PUT', `/api/posts/${postId}`, { title, content, addAttachments, removeFileIds });
+    toast('Пост обновлён!');
+    cancelPostEdit(postId);
+    loadPosts();
+  }
+
+  function cancelPostEdit(postId) {
+    document.getElementById(`post-edit-form-${postId}`).style.display = 'none';
+    document.getElementById(`post-body-${postId}`).style.display = 'block';
+    editPendingAttachments[postId] = [];
+  }
+
+  // ── LIKES ─────────────────────────────────────────
+  async function toggleLike(postId, btn) {
+    if (!me) { toast('Войди чтобы ставить лайки', '#e74c3c'); return; }
+    const data = await api('POST', `/api/posts/${postId}/like`);
+    btn.classList.toggle('liked', data.liked);
+    // Обновляем счётчик
+    const posts = await api('GET', '/api/posts');
+    const p = posts.find(x => x.id === postId);
+    if (p) {
+      const likes = parseInt(p.likes_count) || 0;
+      btn.textContent = '👍 Нравится' + (likes > 0 ? ' · ' + likes : '');
+    }
+  }
+
+  // ── COMMENTS ──────────────────────────────────────
+  async function toggleComments(postId) {
+    const section = document.getElementById('cmts-' + postId);
+    const isOpen = section.classList.contains('open');
+    if (isOpen) {
+      section.classList.remove('open');
+    } else {
+      section.classList.add('open');
+      await loadComments(postId);
+    }
+  }
+
+  async function loadComments(postId) {
+    const cmts = await api('GET', `/api/posts/${postId}/comments`);
+    const list = document.getElementById('cmts-list-' + postId);
+    if (!cmts.length) { list.innerHTML = '<div style="color:var(--text2);font-size:12px;margin-bottom:8px">Комментариев пока нет</div>'; return; }
+    list.innerHTML = cmts.map(c => {
+      const init = c.username[0].toUpperCase();
+      const avatarHtml = c.avatar ? `<img src="${c.avatar}" alt="${c.username}"/>` : init;
+      const canDel = me && c.user_id === me.id;
+      const atts = Array.isArray(c.attachments) ? c.attachments : (c.attachments ? JSON.parse(c.attachments) : []);
+      return `<div class="comment-item" id="cmt-${c.id}">
+        <div class="comment-avatar user-avatar" onclick="openUserProfile(${c.user_id})">${avatarHtml}</div>
+        <div class="comment-body">
+          <span class="comment-author" onclick="openUserProfile(${c.user_id})" style="cursor:pointer">${c.username}</span>
+          ${canDel ? `<button class="comment-del" onclick="deleteComment(${c.id}, ${postId})">✕</button>` : ''}
+          ${c.content ? `<div class="comment-text">${c.content}</div>` : ''}
+          ${renderAttachments(atts, 'comment-attachments')}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Per-post comment attachment state
+  const cmtPendingAttachments = {};
+
+  async function handleCmtFiles(postId, input) {
+    if (!input.files.length) return;
+    const uploaded = await uploadFiles(input.files);
+    if (!cmtPendingAttachments[postId]) cmtPendingAttachments[postId] = [];
+    cmtPendingAttachments[postId].push(...uploaded);
+    renderCmtPreview(postId);
+    input.value = '';
+  }
+
+  function renderCmtPreview(postId) {
+    const container = document.getElementById('cmts-attach-preview-' + postId);
+    if (!container) return;
+    const atts = cmtPendingAttachments[postId] || [];
+    container.innerHTML = atts.map((a, i) => renderAttachThumb(a, i, `removeCmtAttach_${postId}|`)).join('');
+    // bind remove via data attr approach — simpler inline:
+    container.innerHTML = atts.map((a, i) => {
+      const thumb = renderAttachThumb(a, i, null);
+      // inject remove button manually
+      const name = a.name || a.url.split('/').pop();
+      let media = '';
+      if (a.mime.startsWith('image/')) media = `<img src="${a.url}" alt="${name}"/>`;
+      else if (a.mime.startsWith('video/')) media = `<video src="${a.url}" muted></video>`;
+      else if (a.mime.startsWith('audio/')) media = `<audio src="${a.url}" controls></audio>`;
+      return `<div class="attach-thumb">
+        ${media}
+        <div class="attach-file-name">${mimeIcon(a.mime)} ${name}</div>
+        <button class="rm-attach" onclick="removeCmtAttach(${postId},${i})">✕</button>
+      </div>`;
+    }).join('');
+  }
+
+  function removeCmtAttach(postId, idx) {
+    if (cmtPendingAttachments[postId]) cmtPendingAttachments[postId].splice(idx, 1);
+    renderCmtPreview(postId);
+  }
+
+  async function addComment(postId) {
+    const input = document.getElementById('cmts-input-' + postId);
+    const content = input.value.trim();
+    const attachments = cmtPendingAttachments[postId] || [];
+    if (!content && !attachments.length) return;
+    if (!me) { toast('Войди чтобы комментировать', '#e74c3c'); return; }
+    const data = await api('POST', `/api/posts/${postId}/comments`, {content, attachments});
+    if (data.error) { toast(data.error, '#e74c3c'); return; }
+    input.value = '';
+    cmtPendingAttachments[postId] = [];
+    renderCmtPreview(postId);
+    await loadComments(postId);
+    // Обновляем счётчик на кнопке
+    const posts = await api('GET', '/api/posts');
+    const p = posts.find(x => x.id === postId);
+    if (p) {
+      const cmts = parseInt(p.comments_count) || 0;
+      const btn = document.querySelector(`#post-${postId} .post-action:nth-child(2)`);
+      if (btn) btn.textContent = '💬 Комментарии' + (cmts > 0 ? ' · ' + cmts : '');
+    }
+  }
+
+  async function deleteComment(cId, postId) {
+    await api('DELETE', `/api/comments/${cId}`);
+    await loadComments(postId);
+  }
+
+  // ── NOTIFICATIONS ─────────────────────────────────
+  const notifAudio = new Audio('https://raw.githubusercontent.com/epic22867/adminversionofoscial/main/public/message_2.mp3');
+  let prevNotifCount = 0;
+
+  async function updateNotifBadge() {
+    if (!me) return;
+    const data = await api('GET', '/api/notifications/unread-count');
+    const count = data.count || 0;
+    const badge = document.getElementById('notif-badge');
+    const sbCount = document.getElementById('sb-notif-count');
+    const bnBadge = document.getElementById('bn-notif-badge');
+    if (count > 0) {
+      const label = count > 9 ? '9+' : count;
+      if (badge) { badge.textContent = label; badge.style.display = 'block'; }
+      if (sbCount) { sbCount.textContent = count; sbCount.style.display = 'inline'; }
+      if (bnBadge) { bnBadge.textContent = label; bnBadge.style.display = 'block'; }
+    } else {
+      if (badge) badge.style.display = 'none';
+      if (sbCount) sbCount.style.display = 'none';
+      if (bnBadge) bnBadge.style.display = 'none';
+    }
+    // Play sound when new notifications arrive
+    if (count > prevNotifCount) {
+      notifAudio.currentTime = 0;
+      notifAudio.play().catch(() => {});
+    }
+    prevNotifCount = count;
+  }
+
+  async function loadNotifications() {
+    const list = document.getElementById('notifications-list');
+    list.innerHTML = '<div style="color:var(--text2);text-align:center;padding:20px">Загрузка...</div>';
+    const notifs = await api('GET', '/api/notifications');
+    if (!notifs.length) {
+      list.innerHTML = '<div class="notif-empty">У вас пока нет уведомлений 🔔</div>';
+      return;
+    }
+    list.innerHTML = notifs.map(n => {
+      const avatarHtml = n.actor_avatar
+        ? `<img src="${n.actor_avatar}" alt="${n.actor_username}"/>`
+        : n.actor_username[0].toUpperCase();
+      const timeStr = new Date(n.created_at).toLocaleString('ru', {day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'});
+      let text = '';
+      if (n.type === 'like') {
+        text = `<b>${n.actor_username}</b> оценил(а) вашу запись${n.post_title ? ': «' + n.post_title.trim() + '»' : ''}`;
+      } else if (n.type === 'comment') {
+        text = `<b>${n.actor_username}</b> прокомментировал(а) вашу запись${n.post_title ? ': «' + n.post_title.trim() + '»' : ''}`;
+      }
+      return `<div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="onNotifClick(${n.id},${n.post_id})">
+        <div class="notif-avatar">${avatarHtml}</div>
+        <div class="notif-body">
+          <div class="notif-text">${n.type === 'like' ? '👍 ' : '💬 '}${text}</div>
+          <div class="notif-time">${timeStr}</div>
+        </div>
+        ${!n.is_read ? '<div class="notif-dot"></div>' : '<div style="width:8px"></div>'}
+      </div>`;
+    }).join('');
+    // Mark all as read after viewing
+    await api('POST', '/api/notifications/read-all');
+    updateNotifBadge();
+  }
+
+  async function markAllRead() {
+    await api('POST', '/api/notifications/read-all');
+    updateNotifBadge();
+    loadNotifications();
+  }
+
+  function onNotifClick(notifId, postId) {
+    // Navigate to news tab and scroll to post if possible
+    setTab('news');
+    setTimeout(() => {
+      const el = document.getElementById('post-' + postId);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 400);
+  }
+
+  // ── PROFILE MUSIC PINS ────────────────────────────
+  function getPinnedKey(userId) { return `pinned_tracks_${userId}`; }
+
+  function getPinnedTracks(userId) {
+    try { return JSON.parse(localStorage.getItem(getPinnedKey(userId)) || '[]'); } catch { return []; }
+  }
+
+  function isTrackPinned(userId, trackId) {
+    return getPinnedTracks(userId).includes(trackId);
+  }
+
+  function togglePinTrack(trackId, btn) {
+    if (!me) { toast('Войдите чтобы добавлять музыку в профиль', '#e74c3c'); return; }
+    const key = getPinnedKey(me.id);
+    let pins = getPinnedTracks(me.id);
+    if (pins.includes(trackId)) {
+      pins = pins.filter(id => id !== trackId);
+      btn.classList.remove('pinned');
+      btn.textContent = '📎';
+      btn.title = 'Добавить в профиль';
+      toast('Трек убран из профиля', '#888');
+    } else {
+      pins.push(trackId);
+      btn.classList.add('pinned');
+      btn.textContent = '📌';
+      btn.title = 'Убрать из профиля';
+      toast('Трек добавлен в профиль! 📌');
+    }
+    localStorage.setItem(key, JSON.stringify(pins));
+  }
+
+  async function loadProfileTracks(userId) {
+    const section = document.getElementById('profile-music-section');
+    const list = document.getElementById('profile-tracks-list');
+    // Get all tracks and filter by userId + pinned
+    const tracks = await api('GET', '/api/tracks');
+    let profileTracks;
+    if (me && userId === me.id) {
+      // Own profile: show pinned tracks
+      const pins = getPinnedTracks(me.id);
+      profileTracks = tracks.filter(t => pins.includes(t.id));
+    } else {
+      // Other profile: show their pinned tracks (stored in their own browser — 
+      // fallback: show all their uploaded tracks)
+      profileTracks = tracks.filter(t => t.user_id === userId);
+    }
+    if (!profileTracks.length) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = 'block';
+    list.innerHTML = profileTracks.map(t => {
+      const idx = allTracks.findIndex(x => x.id === t.id);
+      const coverHtml = t.cover ? `<img src="${t.cover}" alt="cover"/>` : '🎵';
+      const plays = parseInt(t.plays) || 0;
+      return `<div class="track-card" id="profile-track-card-${t.id}" onclick="playTrack(${idx})" style="margin-bottom:6px">
+        <div class="track-cover" style="width:44px;height:44px;">${coverHtml}</div>
+        <div class="track-info">
+          <div class="track-title">${t.title}</div>
+          <div class="track-artist">${t.artist}</div>
+          <div class="track-meta"><span>▶ ${plays}</span></div>
+        </div>
+        <div class="track-actions" onclick="event.stopPropagation()">
+          <button class="mp-btn" onclick="playTrack(${idx})" title="Слушать" style="font-size:18px;background:none;border:none;cursor:pointer;">▶</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── PROFILE & SETTINGS ────────────────────────────
+  async function uploadAvatar(input) {
+    if (!input.files.length) return;
+    const fd = new FormData();
+    fd.append('avatar', input.files[0]);
+    const r = await fetch('/api/profile/avatar', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.error) { toast(data.error, '#e74c3c'); return; }
+    me.avatar = data.url + '?t=' + Date.now();
+    renderAvatar(document.getElementById('sb-avatar'), me);
+    renderAvatar(document.getElementById('settings-av-preview'), me);
+    renderAvatar(document.getElementById('profile-big-av'), me);
+    input.value = '';
+    toast('Аватар обновлён!');
+  }
+
+  async function saveBio() {
+    const bio = document.getElementById('bio-input').value.trim();
+    await api('POST', '/api/profile/bio', { bio });
+    me.bio = bio;
+    document.getElementById('sb-bio').textContent = bio || 'участник';
+    toast('Профиль сохранён!');
+  }
+
+  async function loadProfile(userId) {
+    if (!me) return;
+    const targetId = userId || me.id;
+    const user = await api('GET', `/api/profile/${targetId}`);
+    if (!userId) {
+      me.bio = user.bio;
+      me.avatar = user.avatar;
+    }
+    const avEl = document.getElementById('profile-big-av');
+    if (user.avatar) {
+      avEl.innerHTML = `<img src="${user.avatar}" alt="${user.username}"/>`;
+    } else {
+      avEl.textContent = user.username[0].toUpperCase();
+    }
+    document.getElementById('profile-username').textContent = user.username;
+    document.getElementById('profile-bio-text').textContent = user.bio || 'Био не заполнено';
+    const joined = new Date(user.created_at).toLocaleString('ru', {year:'numeric', month:'long', day:'numeric'});
+    document.getElementById('profile-joined').textContent = `📅 На сайте с ${joined}`;
+    // Show/hide edit controls: only visible when viewing own profile
+    const editControls = document.getElementById('profile-edit-hint');
+    if (editControls) editControls.style.display = (targetId === me.id) ? 'block' : 'none';
+    // Load profile music
+    await loadProfileTracks(targetId);
+  }
+
+  async function openUserProfile(userId) {
+    currentTab = 'profile';
+    ['news','my','settings','profile','notifications','music'].forEach(t => {
+      const btn = document.getElementById('tab-btn-' + t);
+      const sl = document.getElementById('sl-' + t);
+      const bn = document.getElementById('bn-' + t);
+      if (btn) btn.classList.toggle('active', t === 'profile');
+      if (sl) sl.classList.toggle('active', t === 'profile');
+      if (bn) bn.classList.toggle('active', t === 'profile');
+    });
+    ['news','my'].forEach(t => {
+      const fb = document.getElementById('ftab-' + t);
+      if (fb) fb.classList.remove('active');
+    });
+    document.getElementById('write-block').style.display = 'none';
+    document.getElementById('posts-list').style.display = 'none';
+    document.querySelector('.feed-tabs').style.display = 'none';
+    document.getElementById('settings-panel').style.display = 'none';
+    document.getElementById('notifications-panel').style.display = 'none';
+    document.getElementById('music-panel').style.display = 'none';
+    document.getElementById('profile-panel').style.display = 'block';
+    await loadProfile(userId);
+  }
+
+  // ── MUSIC PLATFORM ────────────────────────────────
+  let allTracks = [];
+  let currentTrackIdx = -1;
+  const playerAudio = new Audio();
+  let playerPlaying = false;
+
+  function toggleMusicUpload() {
+    const body = document.getElementById('music-upload-body');
+    const arrow = document.getElementById('music-upload-arrow');
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : 'block';
+    arrow.textContent = open ? '▾' : '▴';
+  }
+
+  function previewMusicCover(input) {
+    if (!input.files.length) return;
+    const file = input.files[0];
+    const url = URL.createObjectURL(file);
+    const wrap = document.getElementById('music-cover-preview-wrap');
+    wrap.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;border-radius:6px"/>`;
+  }
+
+  function onMusicAudioPick(input) {
+    if (!input.files.length) return;
+    document.getElementById('music-audio-label').textContent = '🎵 ' + input.files[0].name;
+  }
+
+  async function uploadTrack(btn) {
+    const title = document.getElementById('music-title-input').value.trim();
+    const artist = document.getElementById('music-artist-input').value.trim();
+    const audioInput = document.getElementById('music-audio-input');
+    const coverInput = document.getElementById('music-cover-input');
+    if (!title) { toast('Введите название трека', '#e74c3c'); return; }
+    if (!artist) { toast('Введите исполнителя', '#e74c3c'); return; }
+    if (!audioInput.files.length) { toast('Выберите аудиофайл', '#e74c3c'); return; }
+    const fd = new FormData();
+    fd.append('title', title);
+    fd.append('artist', artist);
+    fd.append('audio', audioInput.files[0]);
+    if (coverInput.files.length) fd.append('cover', coverInput.files[0]);
+    btn.disabled = true; btn.textContent = 'Загрузка...';
+    const r = await fetch('/api/tracks', { method:'POST', body:fd });
+    const data = await r.json();
+    btn.disabled = false; btn.textContent = 'Опубликовать';
+    if (data.error) { toast(data.error, '#e74c3c'); return; }
+    document.getElementById('music-title-input').value = '';
+    document.getElementById('music-artist-input').value = '';
+    audioInput.value = ''; coverInput.value = '';
+    document.getElementById('music-audio-label').textContent = '🎵 Выбрать аудиофайл (MP3, OGG, WAV, FLAC…)';
+    document.getElementById('music-cover-preview-wrap').innerHTML = '<span style="font-size:32px">🖼</span><div style="font-size:12px;color:var(--text2);margin-top:6px">Обложка</div>';
+    toggleMusicUpload();
+    toast('Трек опубликован! 🎵');
+    await loadTracks();
+  }
+
+  async function loadTracks() {
+    const tracks = await api('GET', '/api/tracks');
+    allTracks = tracks;
+    renderTrackList(tracks);
+  }
+
+  function filterTracks() {
+    const q = document.getElementById('music-search').value.toLowerCase();
+    renderTrackList(allTracks.filter(t => t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q)));
+  }
+
+  function renderTrackList(tracks) {
+    const list = document.getElementById('tracks-list');
+    if (!tracks.length) {
+      list.innerHTML = '<div class="empty">Треков пока нет. Будьте первым! 🎵</div>';
+      return;
+    }
+    list.innerHTML = tracks.map((t, i) => {
+      const idx = allTracks.findIndex(x => x.id === t.id);
+      const coverHtml = t.cover
+        ? `<img src="${t.cover}" alt="cover"/>`
+        : '🎵';
+      const liked = parseInt(t.user_liked) > 0;
+      const likes = parseInt(t.likes_count) || 0;
+      const plays = parseInt(t.plays) || 0;
+      const canDel = me && (t.user_id === me.id || amAdmin);
+      const isPinned = me && isTrackPinned(me.id, t.id);
+      const pinBtn = me ? `<button class="track-pin-btn${isPinned ? ' pinned' : ''}" onclick="togglePinTrack(${t.id},this)" title="${isPinned ? 'Убрать из профиля' : 'Добавить в профиль'}">${isPinned ? '📌' : '📎'}</button>` : '';
+      return `<div class="track-card" id="track-card-${t.id}" onclick="playTrack(${idx})">
+        <div class="track-cover">${coverHtml}</div>
+        <div class="track-info">
+          <div class="track-title">${t.title}</div>
+          <div class="track-artist">${t.artist}</div>
+          <div class="track-meta">
+            <span>👤 ${t.username}</span>
+            <span>▶ ${plays}</span>
+          </div>
+        </div>
+        <div class="track-actions" onclick="event.stopPropagation()">
+          ${me ? `<button class="track-like-btn ${liked?'liked':''}" onclick="likeTrack(${t.id},this)">❤ ${likes > 0 ? likes : ''}</button>` : ''}
+          ${pinBtn}
+          ${canDel ? `<button class="track-del-btn" onclick="deleteTrack(${t.id})">✕</button>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function playTrack(idx) {
+    if (idx < 0 || idx >= allTracks.length) return;
+    currentTrackIdx = idx;
+    const t = allTracks[idx];
+    playerAudio.src = `/api/tracks/${t.id}/audio`;
+    playerAudio.volume = (document.getElementById('mp-vol')?.value || 80) / 100;
+    playerAudio.play();
+    playerPlaying = true;
+    document.getElementById('mp-play-btn').textContent = '⏸';
+    document.getElementById('mp-title').textContent = t.title;
+    document.getElementById('mp-artist').textContent = t.artist;
+    const mpCover = document.getElementById('mp-cover');
+    mpCover.innerHTML = t.cover ? `<img src="${t.cover}" alt="cover"/>` : '🎵';
+    document.getElementById('music-player').style.display = 'grid';
+    // Highlight playing card
+    document.querySelectorAll('.track-card').forEach(c => c.classList.remove('playing'));
+    const card = document.getElementById('track-card-' + t.id);
+    if (card) card.classList.add('playing');
+  }
+
+  function togglePlay() {
+    if (playerPlaying) {
+      playerAudio.pause();
+      playerPlaying = false;
+      document.getElementById('mp-play-btn').textContent = '▶';
+    } else {
+      playerAudio.play();
+      playerPlaying = true;
+      document.getElementById('mp-play-btn').textContent = '⏸';
+    }
+  }
+
+  function skipTrack(dir) {
+    const next = currentTrackIdx + dir;
+    if (next >= 0 && next < allTracks.length) playTrack(next);
+  }
+
+  // ── REPEAT ────────────────────────────────────────
+  // 0 = off, 1 = repeat one, 2 = repeat all
+  let repeatMode = 0;
+  function cycleRepeat() {
+    repeatMode = (repeatMode + 1) % 3;
+    const btn = document.getElementById('mp-repeat-btn');
+    if (repeatMode === 0) {
+      btn.textContent = '🔁'; btn.className = 'mp-btn mp-repeat-btn'; btn.title = 'Повтор выкл';
+    } else if (repeatMode === 1) {
+      btn.textContent = '🔂'; btn.className = 'mp-btn mp-repeat-btn active-one'; btn.title = 'Повтор трека';
+    } else {
+      btn.textContent = '🔁'; btn.className = 'mp-btn mp-repeat-btn active-all'; btn.title = 'Повтор всех';
+    }
+  }
+
+  function seekAudio(val) {
+    if (playerAudio.duration) playerAudio.currentTime = (val / 100) * playerAudio.duration;
+  }
+
+  function setVolume(val) { playerAudio.volume = val / 100; }
+
+  function fmtTime(s) {
+    if (!s || isNaN(s)) return '0:00';
+    const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+    return m + ':' + String(sec).padStart(2, '0');
+  }
+
+  playerAudio.addEventListener('timeupdate', () => {
+    if (!playerAudio.duration) return;
+    const pct = (playerAudio.currentTime / playerAudio.duration) * 100;
+    const prog = document.getElementById('mp-progress');
+    if (prog) prog.value = pct;
+    const cur = document.getElementById('mp-cur');
+    if (cur) cur.textContent = fmtTime(playerAudio.currentTime);
+  });
+  playerAudio.addEventListener('loadedmetadata', () => {
+    const dur = document.getElementById('mp-dur');
+    if (dur) dur.textContent = fmtTime(playerAudio.duration);
+  });
+  playerAudio.addEventListener('ended', () => {
+    if (repeatMode === 1) {
+      // repeat one: restart same track
+      playerAudio.currentTime = 0;
+      playerAudio.play();
+    } else if (repeatMode === 2) {
+      // repeat all: loop back to start
+      const next = (currentTrackIdx + 1) % allTracks.length;
+      playTrack(next);
+    } else {
+      skipTrack(1);
+    }
+  });
+
+  async function likeTrack(trackId, btn) {
+    if (!me) { toast('Войди чтобы ставить лайки', '#e74c3c'); return; }
+    const data = await api('POST', `/api/tracks/${trackId}/like`);
+    btn.classList.toggle('liked', data.liked);
+    const t = allTracks.find(x => x.id === trackId);
+    if (t) {
+      t.user_liked = data.liked ? 1 : 0;
+      t.likes_count = (parseInt(t.likes_count) || 0) + (data.liked ? 1 : -1);
+      btn.textContent = '❤ ' + (t.likes_count > 0 ? t.likes_count : '');
+    }
+  }
+
+  async function deleteTrack(trackId) {
+    if (!confirm('Удалить трек?')) return;
+    await api('DELETE', `/api/tracks/${trackId}`);
+    if (allTracks[currentTrackIdx]?.id === trackId) {
+      playerAudio.pause();
+      document.getElementById('music-player').style.display = 'none';
+      currentTrackIdx = -1;
+    }
+    await loadTracks();
+    toast('Трек удалён', '#e74c3c');
+  }
+
+  // ── PLAYER DRAG ───────────────────────────────────
+  (function initPlayerDrag() {
+    const player = document.getElementById('music-player');
+    let dragging = false, startX, startY, origLeft, origTop;
+
+    function onDown(e) {
+      // Ignore clicks on interactive controls
+      if (e.target.closest('button,input')) return;
+      dragging = true;
+      player.classList.add('dragging');
+      const touch = e.touches ? e.touches[0] : e;
+      startX = touch.clientX; startY = touch.clientY;
+      const rect = player.getBoundingClientRect();
+      origLeft = rect.left; origTop = rect.top;
+      // Switch from transform-centering to explicit position
+      player.style.left = origLeft + 'px';
+      player.style.top = origTop + 'px';
+      player.style.bottom = 'auto';
+      player.style.transform = 'none';
+      e.preventDefault();
+    }
+
+    function onMove(e) {
+      if (!dragging) return;
+      const touch = e.touches ? e.touches[0] : e;
+      const dx = touch.clientX - startX, dy = touch.clientY - startY;
+      let newLeft = origLeft + dx, newTop = origTop + dy;
+      // Keep within viewport
+      newLeft = Math.max(0, Math.min(window.innerWidth - player.offsetWidth, newLeft));
+      newTop = Math.max(0, Math.min(window.innerHeight - player.offsetHeight, newTop));
+      player.style.left = newLeft + 'px';
+      player.style.top = newTop + 'px';
+      e.preventDefault();
+    }
+
+    function onUp() {
+      if (!dragging) return;
+      dragging = false;
+      player.classList.remove('dragging');
+    }
+
+    player.addEventListener('mousedown', onDown);
+    player.addEventListener('touchstart', onDown, { passive: false });
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchend', onUp);
+  })();
+
+
+  // ── AI CHAT (Ollama + vision + web search) ────────
+  const aiHistory = [];
+  let aiStreaming = false;
+  let aiImageBase64 = null;
+  let aiImageMime = null;
+
+  function getAiModel() { return document.getElementById('ai-model-select').value; }
+  function isWebSearchOn() { return document.getElementById('ai-web-search').checked; }
+  function aiUserInit() { return me ? me.username[0].toUpperCase() : '?'; }
+
+  function appendAiMsg(role, text, streaming) {
+    const msgs = document.getElementById('ai-messages');
+    const id = 'ai-msg-' + Date.now();
+    msgs.querySelector('.ai-welcome')?.remove();
+    if (role === 'user') {
+      msgs.innerHTML += `<div class="ai-msg user" id="${id}">
+        <div class="ai-avatar user">${aiUserInit()}</div>
+        <div class="ai-bubble">${escapeHtml(text)}</div>
+      </div>`;
+    } else if (role === 'user-img') {
+      msgs.innerHTML += `<div class="ai-msg user" id="${id}">
+        <div class="ai-avatar user">${aiUserInit()}</div>
+        <div class="ai-bubble"><img src="${text}" style="max-width:180px;max-height:140px;border-radius:6px;display:block"/></div>
+      </div>`;
+    } else if (role === 'bot') {
+      msgs.innerHTML += `<div class="ai-msg bot" id="${id}">
+        <div class="ai-avatar bot">🤖</div>
+        <div class="ai-bubble" id="${id}-text">${streaming ? '<div class="ai-typing"><div class="ai-dot"></div><div class="ai-dot"></div><div class="ai-dot"></div></div>' : escapeHtml(text)}</div>
+      </div>`;
+    } else if (role === 'error') {
+      msgs.innerHTML += `<div class="ai-msg error" id="${id}"><div class="ai-bubble">⚠️ ${escapeHtml(text)}</div></div>`;
+    } else if (role === 'info') {
+      msgs.innerHTML += `<div style="text-align:center;font-size:11px;color:var(--text2);padding:4px 0" id="${id}">${text}</div>`;
+    }
+    msgs.scrollTop = msgs.scrollHeight;
+    return id;
+  }
+
+  function updateAiBubble(id, text) {
+    const el = document.getElementById(id + '-text');
+    if (el) { el.textContent = text; document.getElementById('ai-messages').scrollTop = 9999; }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function setAiStatus(msg) { document.getElementById('ai-status').textContent = msg; }
+
+  function handleAiImage(input) {
+    const file = input.files[0];
+    if (!file) return;
+    document.getElementById('ai-model-select').value = 'moondream';
+    const reader = new FileReader();
+    reader.onload = e => {
+      const dataUrl = e.target.result;
+      aiImageMime = file.type;
+      aiImageBase64 = dataUrl.split(',')[1];
+      document.getElementById('ai-img-thumb').src = dataUrl;
+      document.getElementById('ai-img-preview').style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
+  }
+
+  function clearAiImage() {
+    aiImageBase64 = null; aiImageMime = null;
+    document.getElementById('ai-img-preview').style.display = 'none';
+    document.getElementById('ai-img-thumb').src = '';
+  }
+
+  async function sendAiMessage() {
+    if (aiStreaming) return;
+    const input = document.getElementById('ai-input');
+    const text = input.value.trim();
+    if (!text && !aiImageBase64) return;
+
+    input.value = '';
+    input.style.height = 'auto';
+    document.getElementById('ai-send-btn').disabled = true;
+    aiStreaming = true;
+
+    const model = getAiModel();
+    const useWebSearch = isWebSearchOn() && !aiImageBase64;
+    const imgThumbSrc = document.getElementById('ai-img-thumb').src;
+    const imgB64 = aiImageBase64;
+    const imgMime = aiImageMime;
+
+    // Show user messages
+    if (imgB64) appendAiMsg('user-img', imgThumbSrc);
+    if (text) appendAiMsg('user', text);
+    clearAiImage();
+
+    // Web search
+    let searchContext = '';
+    if (useWebSearch && text) {
+      setAiStatus('🌐 Ищу в интернете...');
+      try {
+        const sr = await fetch('/api/ai/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: text })
+        });
+        const sd = await sr.json();
+        if (sd.results && sd.results.length) {
+          searchContext = '\n\n[Результаты поиска]:\n' + sd.results.map((r,i) =>
+            `${i+1}. ${r.title}\n${r.body}\nИсточник: ${r.href}`
+          ).join('\n\n') + '\n[Конец результатов]\n';
+          appendAiMsg('info', '🌐 Найдено ' + sd.results.length + ' результатов');
+        }
+      } catch { appendAiMsg('info', '⚠️ Поиск недоступен'); }
+    }
+
+    // Build history message
+    if (imgB64) {
+      aiHistory.push({ role: 'user', content: [
+        { type: 'text', text: text || 'Что на картинке?' },
+        { type: 'image_url', image_url: { url: `data:${imgMime};base64,${imgB64}` } }
+      ]});
+    } else {
+      aiHistory.push({ role: 'user', content: searchContext ? text + searchContext : text });
+    }
+
+    const botId = appendAiMsg('bot', '', true);
+    setAiStatus(model === 'moondream' ? '👁 Анализирую изображение...' : 'Думаю...');
+
+    try {
+      const body = { model, messages: aiHistory, stream: true };
+      if (model !== 'moondream') body.options = { think: false };
+
+      const res = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Ollama вернул ${res.status}: ${err}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let full = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        for (const line of decoder.decode(value, { stream: true }).split('\n')) {
+          if (!line.trim()) continue;
+          try {
+            const json = JSON.parse(line);
+            if (json.message?.content) { full += json.message.content; updateAiBubble(botId, full); }
+          } catch {}
+        }
+      }
+      aiHistory.push({ role: 'assistant', content: full });
+      setAiStatus('');
+    } catch (e) {
+      document.getElementById(botId)?.remove();
+      aiHistory.pop();
+      appendAiMsg('error', e.message || 'Неизвестная ошибка');
+      setAiStatus('');
+    } finally {
+      aiStreaming = false;
+      document.getElementById('ai-send-btn').disabled = false;
+      document.getElementById('ai-input').focus();
+    }
+  }
+
+  function clearAiChat() {
+    aiHistory.length = 0;
+    clearAiImage();
+    document.getElementById('ai-messages').innerHTML = `<div class="ai-welcome">
+      <div style="font-size:32px;margin-bottom:8px">🤖</div>
+      <div style="font-weight:bold;margin-bottom:4px">Чат очищен!</div>
+      <div style="font-size:12px;color:var(--text2)">Задай вопрос, прикрепи картинку или включи 🌐 для поиска.</div>
+    </div>`;
+    setAiStatus('');
+  }
+
+  // ── INIT ──────────────────────────────────────────
+  const savedTheme = localStorage.getItem('theme') || 'light';
+  setTheme(savedTheme);
+
+  api('GET', '/api/me').then(data => {
+    if (data && data.id) {
+      if (data.avatar) data.avatar = data.avatar + '?t=' + Date.now();
+      me = data; onLogin();
+    }
+  });
+</script>
+</body>
+</html>
