@@ -642,7 +642,10 @@ app.post('/api/ai/chat', async (req, res) => {
   try {
     const ollamaRes = await fetch(`${OLLAMA_TUNNEL}/api/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
       body: JSON.stringify(req.body),
     });
 
